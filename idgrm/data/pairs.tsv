@@ -1,0 +1,7 @@
+pair_id	gene1	gene2	duplication_type	role1	role2	ancestor_id
+pair_sub	S1	S2	WGD			ASUB
+pair_neo	N1	N2	tandem	parent	daughter	ANEO
+pair_aed	A1	A2	proximal
+pair_conserved	C1	C2	WGD
+pair_loss	L1	L2	dispersed
+pair_ambiguous	X1	X2	transposed

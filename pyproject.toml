@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "idgrm"
+version = "0.1.0"
+description = "Expression-based inference of duplicated-gene retention mechanisms"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  {name = "iDGRM contributors"}
+]
+dependencies = [
+  "numpy>=1.23",
+  "pandas>=1.5",
+  "scipy>=1.9"
+]
+
+[project.optional-dependencies]
+web = ["streamlit>=1.28"]
+
+[project.scripts]
+idgrm = "idgrm.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["idgrm*"]
+
+[tool.setuptools.package-data]
+idgrm = ["data/*.tsv"]
