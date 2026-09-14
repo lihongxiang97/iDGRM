@@ -3,13 +3,40 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from idgrm.config import IDGRMConfig
-from idgrm.pipeline import run_analysis
+from idgrm.pipeline import run_analysis, run_refinement_analysis, run_science_analysis
 
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 class PipelineTests(unittest.TestCase):
+    def test_explicit_two_stage_workflow(self):
+        with TemporaryDirectory() as temp_name:
+            temp = Path(temp_name)
+            stage1 = run_science_analysis(
+                expression_path=ROOT / "examples" / "expression.tsv",
+                samples_path=ROOT / "examples" / "samples.tsv",
+                pairs_path=ROOT / "examples" / "pairs.tsv",
+                output_dir=temp / "science",
+            )
+            self.assertTrue(set(stage1.classifications["science_class"]).issubset(
+                {"UNMAPPED", "NO_DIFFERENCE", "AED", "SUB_OR_NEO"}
+            ))
+            self.assertNotIn("extended_fate", stage1.classifications.columns)
+            stage2 = run_refinement_analysis(
+                science_classifications_path=stage1.output_paths["science_classifications"],
+                evidence_path=stage1.output_paths["tissue_evidence"],
+                pairs_path=ROOT / "examples" / "pairs.tsv",
+                output_dir=temp / "refined",
+            )
+            self.assertEqual(
+                set(stage2.classifications["parent_science_class"]), {"AED", "SUB_OR_NEO"}
+            )
+            self.assertTrue(set(stage2.classifications["extended_subtype"]).issubset({
+                "AED_DOMINANCE", "AED_EXPRESSION_LOSS_LIKE", "SUBFUNCTIONALIZATION",
+                "NEOFUNCTIONALIZATION", "AMBIGUOUS_SUB_NEO",
+            }))
+
     def test_demo_with_ancestor(self):
         with TemporaryDirectory() as temp:
             result = run_analysis(

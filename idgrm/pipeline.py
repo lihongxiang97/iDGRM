@@ -8,11 +8,19 @@ import platform
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import pandas as pd
 
-from .classifier import FATE_LABELS_CN, SCIENCE_LABELS_CN, classify_pairs
+from .classifier import (
+    FATE_LABELS_CN,
+    REFINEMENT_LABELS_CN,
+    SCIENCE_LABELS_CN,
+    classify_pairs,
+    refine_science_candidates,
+    science_classifications,
+)
 from .config import IDGRMConfig
 from .io import (
     aggregate_tissue_expression,
@@ -100,7 +108,7 @@ def _write_outputs(
 def _metadata(config: IDGRMConfig, inputs: dict[str, Any], warnings: list[str], **extra: Any) -> dict[str, Any]:
     return {
         "software": "iDGRM",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "python": platform.python_version(),
         "config": config.to_dict(),
@@ -235,3 +243,170 @@ def run_legacy_analysis(
     )
     paths = _write_outputs(output_dir, classifications, evidence, summary, metadata)
     return AnalysisResult(classifications, evidence, summary, paths, warnings)
+
+
+def _read_table(path: str | Path) -> pd.DataFrame:
+    path = Path(path)
+    separator = "," if path.suffix.lower() == ".csv" else "\t"
+    return pd.read_csv(path, sep=separator)
+
+
+def run_science_analysis(
+    expression_path: str | Path,
+    pairs_path: str | Path,
+    output_dir: str | Path,
+    samples_path: str | Path | None = None,
+    config: IDGRMConfig | None = None,
+    normalization: str = "none",
+) -> AnalysisResult:
+    """Stage 1: emit only the four mutually exclusive Science classes."""
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory() as temporary:
+        internal = run_analysis(
+            expression_path=expression_path,
+            pairs_path=pairs_path,
+            output_dir=Path(temporary),
+            samples_path=samples_path,
+            config=config,
+            normalization=normalization,
+        )
+        classifications = science_classifications(internal.classifications)
+        counts = classifications["science_class"].value_counts()
+        summary = pd.DataFrame([
+            {
+                "class_code": code,
+                "label_cn": {
+                    "UNMAPPED": "未映射/数据不足",
+                    **SCIENCE_LABELS_CN,
+                }[code],
+                "n_pairs": int(count),
+                "proportion": float(count / len(classifications)) if len(classifications) else 0.0,
+            }
+            for code, count in counts.items()
+        ])
+        evidence = internal.evidence.copy()
+        metadata = json.loads(internal.output_paths["metadata"].read_text(encoding="utf-8"))
+        metadata["workflow_stage"] = "science_four_class"
+        metadata["class_codes"] = ["UNMAPPED", "NO_DIFFERENCE", "AED", "SUB_OR_NEO"]
+
+    paths = {
+        "science_classifications": output_dir / "science_classifications.tsv",
+        "tissue_evidence": output_dir / "tissue_evidence.tsv",
+        "science_summary": output_dir / "science_summary.tsv",
+        "metadata": output_dir / "science_run_metadata.json",
+    }
+    classifications.to_csv(paths["science_classifications"], sep="\t", index=False, na_rep="")
+    evidence.to_csv(paths["tissue_evidence"], sep="\t", index=False, na_rep="")
+    summary.to_csv(paths["science_summary"], sep="\t", index=False, na_rep="")
+    paths["metadata"].write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    return AnalysisResult(classifications, evidence, summary, paths, internal.warnings)
+
+
+def run_science_legacy_analysis(
+    deseq_directory: str | Path,
+    pairs_path: str | Path,
+    output_dir: str | Path,
+    config: IDGRMConfig | None = None,
+    pattern: str = "*.DESeq2.csv",
+    filename_regex: str = DEFAULT_FILENAME_REGEX,
+) -> AnalysisResult:
+    """Stage 1 for precomputed per-tissue DESeq2 files."""
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory() as temporary:
+        internal = run_legacy_analysis(
+            deseq_directory=deseq_directory,
+            pairs_path=pairs_path,
+            output_dir=Path(temporary),
+            config=config,
+            pattern=pattern,
+            filename_regex=filename_regex,
+        )
+        classifications = science_classifications(internal.classifications)
+        counts = classifications["science_class"].value_counts()
+        labels = {"UNMAPPED": "未映射/数据不足", **SCIENCE_LABELS_CN}
+        summary = pd.DataFrame([
+            {
+                "class_code": code, "label_cn": labels[code], "n_pairs": int(count),
+                "proportion": float(count / len(classifications)) if len(classifications) else 0.0,
+            }
+            for code, count in counts.items()
+        ])
+        evidence = internal.evidence.copy()
+        metadata = json.loads(internal.output_paths["metadata"].read_text(encoding="utf-8"))
+        metadata["workflow_stage"] = "science_four_class"
+        metadata["class_codes"] = ["UNMAPPED", "NO_DIFFERENCE", "AED", "SUB_OR_NEO"]
+    paths = {
+        "science_classifications": output_dir / "science_classifications.tsv",
+        "tissue_evidence": output_dir / "tissue_evidence.tsv",
+        "science_summary": output_dir / "science_summary.tsv",
+        "metadata": output_dir / "science_run_metadata.json",
+    }
+    classifications.to_csv(paths["science_classifications"], sep="\t", index=False, na_rep="")
+    evidence.to_csv(paths["tissue_evidence"], sep="\t", index=False, na_rep="")
+    summary.to_csv(paths["science_summary"], sep="\t", index=False, na_rep="")
+    paths["metadata"].write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    return AnalysisResult(classifications, evidence, summary, paths, internal.warnings)
+
+
+def run_refinement_analysis(
+    science_classifications_path: str | Path,
+    evidence_path: str | Path,
+    pairs_path: str | Path,
+    output_dir: str | Path,
+    config: IDGRMConfig | None = None,
+    ancestor_expression_path: str | Path | None = None,
+    ancestor_samples_path: str | Path | None = None,
+    normalization: str = "none",
+) -> AnalysisResult:
+    """Stage 2: refine only AED and SUB_OR_NEO from a completed Science run."""
+
+    config = (config or IDGRMConfig()).validate()
+    science = _read_table(science_classifications_path)
+    evidence = _read_table(evidence_path)
+    pairs = read_pairs(pairs_path)
+    _, ancestor_tissues = _load_ancestor(
+        ancestor_expression_path, ancestor_samples_path, normalization
+    )
+    combined = classify_pairs(evidence, pairs, config, ancestor_tissues)
+    refined = refine_science_candidates(science, combined, config)
+    counts = refined.groupby(["parent_science_class", "extended_subtype"], dropna=False).size()
+    summary = counts.rename("n_pairs").reset_index()
+    summary["label_cn"] = summary["extended_subtype"].map(REFINEMENT_LABELS_CN)
+    parent_totals = refined.groupby("parent_science_class").size()
+    summary["proportion_within_parent"] = summary.apply(
+        lambda row: row.n_pairs / parent_totals[row.parent_science_class], axis=1
+    )
+    warnings = list(pairs.attrs.get("warnings", []))
+    if ancestor_tissues is None:
+        warnings.append(
+            "No outgroup expression was supplied; NEO is an expression-domain proxy, not proof of new biochemical function."
+        )
+    metadata = _metadata(
+        config,
+        {
+            "science_classifications": _input_record(science_classifications_path),
+            "tissue_evidence": _input_record(evidence_path),
+            "pairs": _input_record(pairs_path),
+            "ancestor_expression": _input_record(ancestor_expression_path),
+            "ancestor_samples": _input_record(ancestor_samples_path),
+        },
+        warnings,
+        workflow_stage="idgrm_refinement",
+        eligible_parent_classes=["AED", "SUB_OR_NEO"],
+        n_refined_pairs=int(len(refined)),
+    )
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths = {
+        "extended_classifications": output_dir / "extended_classifications.tsv",
+        "extended_summary": output_dir / "extended_summary.tsv",
+        "metadata": output_dir / "refinement_run_metadata.json",
+    }
+    refined.to_csv(paths["extended_classifications"], sep="\t", index=False, na_rep="")
+    summary.to_csv(paths["extended_summary"], sep="\t", index=False, na_rep="")
+    paths["metadata"].write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    return AnalysisResult(refined, evidence, summary, paths, warnings)

@@ -2,7 +2,7 @@
 
 ## 结论
 
-iDGRM 与原 Perl/R 流程在核心分类思想上兼容，但默认结果不承诺逐行完全一致。`science_class` 用于复现原方法的三类框架；`extended_fate` 是在该框架上的扩展结果。
+iDGRM 与原 Perl/R 流程在核心分类思想上兼容，但默认结果不承诺逐行完全一致。第一阶段明确输出论文四类；第二阶段只细分 AED 和 SUB_OR_NEO，并保留父级类别。
 
 ## 保持一致的部分
 
@@ -21,7 +21,7 @@ iDGRM 与原 Perl/R 流程在核心分类思想上兼容，但默认结果不承
 4. 原始表达入口默认在每个组织内做配对检验，并进行组织内跨基因对的 BH 校正；旧脚本主要直接使用 DESeq2 的 `padj`。
 5. iDGRM 增加表达 on/off 过滤、缺失数据检查、完全重复 pair 去重和输入格式修复。
 6. 原脚本只输出合并的 sub/neo；iDGRM 进一步输出 `SUBFUNCTIONALIZATION`、`NEOFUNCTIONALIZATION` 或 `AMBIGUOUS_SUB_NEO`。
-7. iDGRM 还增加 `EXPRESSION_LOSS` 与 `INSUFFICIENT_DATA`，因此扩展类别不能与旧三分类直接一一对应。
+7. `EXPRESSION_LOSS` 已取消一级类别地位，改为 AED 下的 `AED_EXPRESSION_LOSS_LIKE` 二级标签；数据不足在论文兼容输出中统一写为 `UNMAPPED`。
 
 ## 当前可验证程度
 

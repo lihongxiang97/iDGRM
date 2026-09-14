@@ -4,12 +4,12 @@ iDGRM（Inference of Duplicated-Gene Retention Mechanisms）根据多组织转�
 
 ## 核心输出
 
-iDGRM 同时报告两套结果：
+iDGRM 采用清晰的两阶段工作流：
 
-- `science_class`：`SUB_OR_NEO`、`AED`、`NO_DIFFERENCE`、`INSUFFICIENT_DATA`，用于与原论文及旧版 Perl 脚本对照。
-- `extended_fate`：`SUBFUNCTIONALIZATION`、`NEOFUNCTIONALIZATION`、`AMBIGUOUS_SUB_NEO`、`AED`、`EXPRESSION_LOSS`、`NO_DIFFERENCE`、`INSUFFICIENT_DATA`。
+- 第一阶段严格输出 Science 四类：`UNMAPPED`、`NO_DIFFERENCE`、`AED`、`SUB_OR_NEO`。
+- 第二阶段读取第一阶段结果，只细分 `AED` 和 `SUB_OR_NEO`。AED 分为普通不对称表达和表达丢失样 AED；`SUB_OR_NEO` 分为亚功能化、新功能化表达代理和歧义型。
 
-每个结果都会给出组织级证据、major/minor copy、可能的 innovating/lost copy、置信度、判定依据和完整运行参数。
+`EXPRESSION_LOSS` 不再是与 Science 四类并列的一级分类，而是 AED 下的二级标签。
 
 ## 安装
 
@@ -33,26 +33,37 @@ python -m pip install -e ".[web]"
 python -m idgrm demo --output results/demo
 ```
 
-分析具有生物学重复的表达矩阵：
+第一阶段，获得 Science 标准四分类：
 
 ```bash
-python -m idgrm classify \
+python -m idgrm science \
   --expression expression.tsv \
   --samples samples.tsv \
   --pairs pairs.tsv \
-  --output results/my_run
+  --output results/science
 ```
 
-加入外群单拷贝正交基因，以获得祖先参照的 sub/neo 判定：
+第二阶段，细分第一阶段的 AED 和 SUB_OR_NEO：
 
 ```bash
-python -m idgrm classify \
-  --expression expression.tsv \
-  --samples samples.tsv \
+python -m idgrm refine \
+  --science-classifications results/science/science_classifications.tsv \
+  --evidence results/science/tissue_evidence.tsv \
   --pairs pairs.tsv \
   --ancestor-expression ancestor_expression.tsv \
   --ancestor-samples ancestor_samples.tsv \
-  --output results/with_outgroup
+  --output results/refined
+```
+
+`classify` 命令作为旧版兼容入口保留；新项目建议使用上述 `science` → `refine` 两阶段命令。
+
+若已经有逐组织 DESeq2 结果，第一阶段使用：
+
+```bash
+python -m idgrm science-legacy \
+  --deseq-dir path/to/deseq2_results \
+  --pairs pairs.tsv \
+  --output results/science
 ```
 
 若矩阵的每一列已经是组织均值，可不提供 `--samples`。此时只使用表达 on/off 与 fold-change，结果会标记为 effect-only，证据等级低于重复样本统计。
@@ -136,11 +147,9 @@ iDGRM 与原 Perl/R 脚本保持核心分类框架兼容，但默认不承诺逐
 
 ## 输出文件
 
-- `classifications.tsv`：每个重复基因对一行的最终分类和证据指标。
-- `tissue_evidence.tsv`：每个基因对 × 组织的均值、表达状态、log2FC、P/q 值与方向。
-- `summary.tsv`：两套分类体系的数量和比例。
-- `run_metadata.json`：输入文件 SHA-256、软件版本、参数、警告和时间戳。
-- `report.html`：可搜索、可筛选的自包含浏览器报告。
+- 第一阶段：`science_classifications.tsv`、`science_summary.tsv`、`tissue_evidence.tsv` 和 `science_run_metadata.json`。
+- 第二阶段：`extended_classifications.tsv`、`extended_summary.tsv` 和 `refinement_run_metadata.json`。
+- 每个扩展结果保留 `parent_science_class`，使审稿人能够追溯它来自 AED 还是 SUB_OR_NEO。
 
 ## 重要解释边界
 

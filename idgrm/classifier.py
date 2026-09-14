@@ -20,6 +20,14 @@ FATE_LABELS_CN = {
     "INSUFFICIENT_DATA": "数据不足",
 }
 
+REFINEMENT_LABELS_CN = {
+    "AED_DOMINANCE": "普通非对称表达",
+    "AED_EXPRESSION_LOSS_LIKE": "表达丢失样非对称表达",
+    "SUBFUNCTIONALIZATION": "亚功能化",
+    "NEOFUNCTIONALIZATION": "新功能化表达代理",
+    "AMBIGUOUS_SUB_NEO": "亚/新功能化歧义",
+}
+
 SCIENCE_LABELS_CN = {
     "SUB_OR_NEO": "亚/新功能化候选",
     "AED": "非对称表达",
@@ -495,4 +503,112 @@ def classify_pairs(
         record.update(ancestor_metrics)
         records.append(record)
 
+    return pd.DataFrame.from_records(records)
+
+
+def science_classifications(classifications: pd.DataFrame) -> pd.DataFrame:
+    """Return the publication-facing four-class Science result.
+
+    Extended fates are deliberately omitted so that the baseline result cannot be
+    confused with iDGRM's downstream methodological extension.
+    """
+
+    required = {"pair_id", "gene1", "gene2", "science_class", "science_class_cn"}
+    missing = required - set(classifications.columns)
+    if missing:
+        raise ValueError(f"Missing Science classification columns: {sorted(missing)}")
+    excluded = {
+        "extended_fate", "extended_fate_cn", "innovating_copy", "lost_copy",
+        "evidence_basis", "confidence", "classification_reason",
+    }
+    columns = [column for column in classifications.columns if column not in excluded]
+    result = classifications.loc[:, columns].copy()
+    result["science_class"] = result["science_class"].replace(
+        {"INSUFFICIENT_DATA": "UNMAPPED"}
+    )
+    result["science_class_cn"] = result["science_class"].map({
+        "UNMAPPED": "未映射/数据不足",
+        "NO_DIFFERENCE": "无显著差异",
+        "AED": "非对称表达",
+        "SUB_OR_NEO": "亚/新功能化候选",
+    })
+    result["classification_scheme"] = "SCIENCE_FOUR_CLASS"
+    return result
+
+
+def refine_science_candidates(
+    science: pd.DataFrame,
+    combined: pd.DataFrame,
+    config: IDGRMConfig,
+) -> pd.DataFrame:
+    """Subdivide only AED and SUB_OR_NEO rows from a completed Science run."""
+
+    required = {"pair_id", "science_class"}
+    missing = required - set(science.columns)
+    if missing:
+        raise ValueError(f"Science input is missing columns: {sorted(missing)}")
+    if science["pair_id"].duplicated().any():
+        raise ValueError("Science input contains duplicate pair_id values")
+    allowed = {"UNMAPPED", "INSUFFICIENT_DATA", "NO_DIFFERENCE", "AED", "SUB_OR_NEO"}
+    unknown = sorted(set(science["science_class"].dropna().astype(str)) - allowed)
+    if unknown:
+        raise ValueError(f"Unknown Science class value(s): {unknown}")
+
+    eligible = science.loc[science["science_class"].isin(["AED", "SUB_OR_NEO"])].copy()
+    details = combined.set_index("pair_id", drop=False)
+    missing_pairs = sorted(set(eligible["pair_id"]) - set(details.index))
+    if missing_pairs:
+        raise ValueError(f"{len(missing_pairs)} refinement pair(s) lack tissue evidence")
+
+    records: list[dict[str, object]] = []
+    for source in eligible.itertuples(index=False):
+        row = details.loc[source.pair_id]
+        parent = str(source.science_class)
+        if parent == "AED":
+            loss1 = float(row["loss_fraction_gene1"])
+            loss2 = float(row["loss_fraction_gene2"])
+            if loss1 >= config.loss_fraction and int(row["n_gene1_high"]) == 0:
+                subtype, lost_copy = "AED_EXPRESSION_LOSS_LIKE", row["gene1"]
+                reason = (
+                    f"Science AED refined as expression-loss-like: {lost_copy} is inactive "
+                    f"while its partner is active in {loss1:.0%} of evaluable tissues."
+                )
+            elif loss2 >= config.loss_fraction and int(row["n_gene2_high"]) == 0:
+                subtype, lost_copy = "AED_EXPRESSION_LOSS_LIKE", row["gene2"]
+                reason = (
+                    f"Science AED refined as expression-loss-like: {lost_copy} is inactive "
+                    f"while its partner is active in {loss2:.0%} of evaluable tissues."
+                )
+            else:
+                subtype, lost_copy = "AED_DOMINANCE", ""
+                reason = "Science AED with consistent one-copy dominance but no strong expression-loss-like pattern."
+            innovating_copy = ""
+            basis = "expression_pattern_refinement"
+        else:
+            subtype = str(row["extended_fate"])
+            if subtype not in {"SUBFUNCTIONALIZATION", "NEOFUNCTIONALIZATION", "AMBIGUOUS_SUB_NEO"}:
+                subtype = "AMBIGUOUS_SUB_NEO"
+            lost_copy = ""
+            innovating_copy = str(row.get("innovating_copy", ""))
+            reason = str(row["classification_reason"])
+            basis = str(row["evidence_basis"])
+
+        record = source._asdict()
+        record.update({
+            "parent_science_class": parent,
+            "extended_subtype": subtype,
+            "extended_subtype_cn": REFINEMENT_LABELS_CN[subtype],
+            "lost_copy": lost_copy,
+            "innovating_copy": innovating_copy,
+            "refinement_evidence_basis": basis,
+            "refinement_reason": reason,
+        })
+        for metric in (
+            "major_copy", "minor_copy", "n_evaluable_tissues", "n_gene1_high",
+            "n_gene2_high", "expression_breadth_gene1", "expression_breadth_gene2",
+            "breadth_balance", "dominance_balance", "active_overlap",
+            "expression_correlation", "loss_fraction_gene1", "loss_fraction_gene2",
+        ):
+            record[metric] = row[metric]
+        records.append(record)
     return pd.DataFrame.from_records(records)

@@ -11,7 +11,13 @@ from pathlib import Path
 from . import __version__
 from .config import IDGRMConfig
 from .legacy import DEFAULT_FILENAME_REGEX
-from .pipeline import run_analysis, run_legacy_analysis
+from .pipeline import (
+    run_analysis,
+    run_legacy_analysis,
+    run_refinement_analysis,
+    run_science_analysis,
+    run_science_legacy_analysis,
+)
 
 
 def _add_config_arguments(parser: argparse.ArgumentParser) -> None:
@@ -59,6 +65,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"iDGRM {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    science = subparsers.add_parser(
+        "science", help="Stage 1: reproduce the paper's four-class classification"
+    )
+    science.add_argument("--expression", required=True, help="Genes-by-samples/tissues CSV or TSV")
+    science.add_argument("--pairs", required=True, help="Duplicate-pair CSV or TSV")
+    science.add_argument("--samples", help="Sample metadata with sample_id and tissue")
+    science.add_argument("--output", required=True, help="Output directory")
+    science.add_argument(
+        "--normalization", choices=["none", "cpm", "median-ratio"], default="none"
+    )
+    _add_config_arguments(science)
+
+    science_legacy = subparsers.add_parser(
+        "science-legacy", help="Stage 1 from per-tissue DESeq2 CSV files"
+    )
+    science_legacy.add_argument("--deseq-dir", required=True)
+    science_legacy.add_argument("--pairs", required=True)
+    science_legacy.add_argument("--output", required=True)
+    science_legacy.add_argument("--pattern", default="*.DESeq2.csv")
+    science_legacy.add_argument("--filename-regex", default=DEFAULT_FILENAME_REGEX)
+    _add_config_arguments(science_legacy)
+
+    refine = subparsers.add_parser(
+        "refine", help="Stage 2: subdivide Science AED and SUB_OR_NEO candidates"
+    )
+    refine.add_argument("--science-classifications", required=True)
+    refine.add_argument("--evidence", required=True, help="Stage-1 tissue_evidence.tsv")
+    refine.add_argument("--pairs", required=True, help="The same duplicate-pair table used in stage 1")
+    refine.add_argument("--ancestor-expression", help="Optional outgroup ortholog expression matrix")
+    refine.add_argument("--ancestor-samples", help="Optional outgroup sample metadata")
+    refine.add_argument("--output", required=True, help="Output directory")
+    refine.add_argument(
+        "--normalization", choices=["none", "cpm", "median-ratio"], default="none"
+    )
+    _add_config_arguments(refine)
 
     classify = subparsers.add_parser("classify", help="Analyze an expression matrix")
     classify.add_argument("--expression", required=True, help="Genes-by-samples/tissues CSV or TSV")
@@ -116,7 +158,36 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         config = _config_from_args(args)
-        if args.command == "classify":
+        if args.command == "science":
+            result = run_science_analysis(
+                expression_path=args.expression,
+                pairs_path=args.pairs,
+                samples_path=args.samples,
+                output_dir=args.output,
+                config=config,
+                normalization=args.normalization,
+            )
+        elif args.command == "science-legacy":
+            result = run_science_legacy_analysis(
+                deseq_directory=args.deseq_dir,
+                pairs_path=args.pairs,
+                output_dir=args.output,
+                config=config,
+                pattern=args.pattern,
+                filename_regex=args.filename_regex,
+            )
+        elif args.command == "refine":
+            result = run_refinement_analysis(
+                science_classifications_path=args.science_classifications,
+                evidence_path=args.evidence,
+                pairs_path=args.pairs,
+                output_dir=args.output,
+                config=config,
+                ancestor_expression_path=args.ancestor_expression,
+                ancestor_samples_path=args.ancestor_samples,
+                normalization=args.normalization,
+            )
+        elif args.command == "classify":
             result = run_analysis(
                 expression_path=args.expression,
                 pairs_path=args.pairs,

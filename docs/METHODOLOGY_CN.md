@@ -39,9 +39,29 @@
 
 如果输入列已经是组织均值，iDGRM 使用 effect-only 模式：满足表达 on/off 和 fold-change 即给出方向，不产生 P/q 值。该模式适合探索，不宜替代正式差异表达统计。
 
-## 4. sub/neo 拆分规则
+## 4. 明确的两阶段分类体系
 
-### 4.1 有外群单拷贝正交基因：推荐模式
+### 4.1 第一阶段：Science 标准四分类
+
+第一阶段只输出四个互斥类别：`UNMAPPED`、`NO_DIFFERENCE`、`AED` 和
+`SUB_OR_NEO`。这一结果用于复现论文框架和开展跨研究比较，不包含任何 iDGRM
+新增的一级命运类别。
+
+### 4.2 第二阶段：iDGRM 扩展细分
+
+第二阶段必须读取第一阶段的 `science_classifications.tsv` 和
+`tissue_evidence.tsv`，而不是重新定义主分类。它只处理：
+
+- `AED`：细分为 `AED_DOMINANCE` 和 `AED_EXPRESSION_LOSS_LIKE`；
+- `SUB_OR_NEO`：细分为 `SUBFUNCTIONALIZATION`、`NEOFUNCTIONALIZATION` 和
+  `AMBIGUOUS_SUB_NEO`。
+
+每行扩展结果保留 `parent_science_class`，确保新增判断可以追溯到论文类别。
+表达丢失样模式属于 AED 的二级标签，不再作为第五个一级类别。
+
+## 5. sub/neo 拆分规则
+
+### 5.1 有外群单拷贝正交基因：推荐模式
 
 首先必须满足 Science 的 reciprocal 条件，即 gene1-high 和 gene2-high 各至少出现一次。
 
@@ -61,7 +81,7 @@
 
 若两个 copy 都出现祖先未表达组织增益，或祖先覆盖/相似度不足，则输出 `AMBIGUOUS_SUB_NEO`。
 
-### 4.2 无外群：expression-only proxy
+### 5.2 无外群：expression-only proxy
 
 无外群时不能知道某个组织表达域是祖先保留还是后生获得，因此 iDGRM 明确使用代理规则：
 
@@ -71,14 +91,12 @@
 
 因此，expression-only 的 `NEOFUNCTIONALIZATION` 是“新表达域代理”，并不是功能获得的最终证明。
 
-## 5. 其他扩展命运
+## 6. AED 的扩展细分
 
-- `EXPRESSION_LOSS`：某 copy 在至少 80% 可评价组织中关闭而伙伴开启，且从未显著占优。它表示表达层面的非功能化倾向，不等同于已形成假基因。
-- `AED`：一侧显著占优达到 `ceil(n × 1/3)`，且无显著反向。
-- `NO_DIFFERENCE`：未满足以上规则。
-- `INSUFFICIENT_DATA`：可评价/可检验组织少于默认 2 个。
+- `AED_DOMINANCE`：一侧持续显著占优，但不满足强表达关闭模式。
+- `AED_EXPRESSION_LOSS_LIKE`：某 copy 在至少 80% 可评价组织中关闭而伙伴开启，且从未显著占优。它仍属于 Science AED，只表示表达层面的非功能化倾向，不等同于假基因或已证实的功能丢失。
 
-## 6. 解释与验证建议
+## 7. 解释与验证建议
 
 1. 植物组织应尽量进行发育阶段和器官同源匹配；不对应的组织不能作为祖先 gain/loss 证据。
 2. 跨物种 TPM 绝对量并不天然可比。祖先模式首先依赖表达/不表达状态，其次才使用 fold 和 profile similarity。
