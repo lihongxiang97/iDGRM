@@ -10,29 +10,19 @@ import pandas as pd
 from .config import IDGRMConfig
 
 
-FATE_LABELS_CN = {
+REFINEMENT_LABELS_CN = {
+    "CONSISTENT_ASYMMETRIC_EXPRESSION": "一致性非对称表达",
+    "EXPRESSION_SILENCING_ASSOCIATED_ASYMMETRY": "表达沉默相关非对称表达",
     "SUBFUNCTIONALIZATION": "亚功能化",
     "NEOFUNCTIONALIZATION": "新功能化",
-    "AMBIGUOUS_SUB_NEO": "亚/新功能化歧义",
-    "AED": "非对称表达",
-    "EXPRESSION_LOSS": "表达丢失/非功能化倾向",
-    "NO_DIFFERENCE": "无显著差异",
-    "INSUFFICIENT_DATA": "数据不足",
+    "UNRESOLVED_SUB_OR_NEOFUNCTIONALIZATION": "未解析的亚/新功能化",
 }
 
-REFINEMENT_LABELS_CN = {
-    "AED_DOMINANCE": "普通非对称表达",
-    "AED_EXPRESSION_LOSS_LIKE": "表达丢失样非对称表达",
-    "SUBFUNCTIONALIZATION": "亚功能化",
-    "NEOFUNCTIONALIZATION": "新功能化表达代理",
-    "AMBIGUOUS_SUB_NEO": "亚/新功能化歧义",
-}
-
-SCIENCE_LABELS_CN = {
-    "SUB_OR_NEO": "亚/新功能化候选",
-    "AED": "非对称表达",
+PRIMARY_LABELS_CN = {
+    "UNMAPPED": "未映射或不可定量",
     "NO_DIFFERENCE": "无显著差异",
-    "INSUFFICIENT_DATA": "数据不足",
+    "ASYMMETRICALLY_EXPRESSED": "非对称表达",
+    "SUB_OR_NEOFUNCTIONALIZED": "亚功能化或新功能化",
 }
 
 
@@ -196,7 +186,7 @@ def _split_with_ancestor(
         "Reciprocal tissue dominance is present, but the outgroup pattern does not uniquely "
         "support complementary ancestral partition or a one-copy novel gain."
     )
-    return "AMBIGUOUS_SUB_NEO", "", reason, 0.45, metrics
+    return "UNRESOLVED_SUB_OR_NEOFUNCTIONALIZATION", "", reason, 0.45, metrics
 
 
 def _split_expression_only(
@@ -271,19 +261,18 @@ def _split_expression_only(
         return "SUBFUNCTIONALIZATION", "", reason, 0.67
 
     reason = (
-        "The Science reciprocal-dominance rule is met, but expression breadth and "
+        "Reciprocal tissue dominance is detected, but expression breadth and "
         "complementarity do not distinguish subfunctionalization from neofunctionalization."
     )
-    return "AMBIGUOUS_SUB_NEO", "", reason, 0.40
+    return "UNRESOLVED_SUB_OR_NEOFUNCTIONALIZATION", "", reason, 0.40
 
 
-def classify_pairs(
+def classify_primary_pairs(
     evidence: pd.DataFrame,
     pairs: pd.DataFrame,
     config: IDGRMConfig,
-    ancestor_tissue_expression: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Classify each pair under both the Science and extended iDGRM schemes."""
+    """Classify duplicate pairs into the four primary expression-pattern classes."""
 
     config.validate()
     grouped = {pair_id: group.copy() for pair_id, group in evidence.groupby("pair_id")}
@@ -322,7 +311,7 @@ def classify_pairs(
         n_gene1_high = int(analysis_rows["direction"].eq("gene1_high").sum())
         n_gene2_high = int(analysis_rows["direction"].eq("gene2_high").sum())
         n_no_difference = int(analysis_rows["direction"].eq("no_difference").sum())
-        aed_min_tissues = max(1, ceil(n_evaluable * config.aed_fraction))
+        asymmetry_min_tissues = max(1, ceil(n_evaluable * config.asymmetry_tissue_fraction))
         reciprocal = n_gene1_high >= 1 and n_gene2_high >= 1
 
         breadth1 = _safe_ratio(int(analysis_rows.get("active1", False).sum()), n_evaluable)
@@ -343,127 +332,41 @@ def classify_pairs(
         major, minor = _major_minor(
             pair.gene1, pair.gene2, n_gene1_high, n_gene2_high, analysis_rows
         )
-        loss1_fraction = _safe_ratio(
+        silencing1_fraction = _safe_ratio(
             int((~analysis_rows.get("active1", False) & analysis_rows.get("active2", False)).sum()),
             n_evaluable,
         )
-        loss2_fraction = _safe_ratio(
+        silencing2_fraction = _safe_ratio(
             int((~analysis_rows.get("active2", False) & analysis_rows.get("active1", False)).sum()),
             n_evaluable,
         )
 
-        ancestor_metrics = _blank_ancestor_metrics()
-        innovating_copy = ""
-        lost_copy = ""
-        evidence_basis = "science_rule"
-
         if n_evaluable < config.min_evaluable_tissues or n_callable < config.min_evaluable_tissues:
-            science_class = "INSUFFICIENT_DATA"
-            fate = "INSUFFICIENT_DATA"
-            confidence = 0.0
-            reason = (
+            primary_class = "UNMAPPED"
+            primary_reason = (
                 f"Only {n_callable} callable tissue(s) were available; at least "
                 f"{config.min_evaluable_tissues} are required."
             )
         else:
             if reciprocal:
-                science_class = "SUB_OR_NEO"
+                primary_class = "SUB_OR_NEOFUNCTIONALIZED"
+                primary_reason = (
+                    "Both copies are significantly more highly expressed than their partner "
+                    "in at least one tissue."
+                )
             elif (
-                n_gene1_high >= aed_min_tissues and n_gene2_high == 0
+                n_gene1_high >= asymmetry_min_tissues and n_gene2_high == 0
             ) or (
-                n_gene2_high >= aed_min_tissues and n_gene1_high == 0
+                n_gene2_high >= asymmetry_min_tissues and n_gene1_high == 0
             ):
-                science_class = "AED"
-            else:
-                science_class = "NO_DIFFERENCE"
-
-            ancestor_available = (
-                ancestor_tissue_expression is not None
-                and bool(str(pair.ancestor_id).strip())
-                and str(pair.ancestor_id) in ancestor_tissue_expression.index
-            )
-            if reciprocal:
-                if ancestor_available:
-                    outcome = _split_with_ancestor(
-                        pair,
-                        analysis_rows,
-                        ancestor_tissue_expression.loc[str(pair.ancestor_id)],
-                        config,
-                        dominance_balance,
-                    )
-                    fate, innovating_copy, reason, confidence, ancestor_metrics = outcome
-                    if fate:
-                        evidence_basis = "outgroup_supported"
-                    else:
-                        fate, innovating_copy, reason, confidence = _split_expression_only(
-                            pair,
-                            analysis_rows,
-                            n_gene1_high,
-                            n_gene2_high,
-                            breadth1,
-                            breadth2,
-                            breadth_balance,
-                            dominance_balance,
-                            active_overlap,
-                            expression_correlation,
-                            config,
-                        )
-                        evidence_basis = "expression_only_proxy"
-                else:
-                    fate, innovating_copy, reason, confidence = _split_expression_only(
-                        pair,
-                        analysis_rows,
-                        n_gene1_high,
-                        n_gene2_high,
-                        breadth1,
-                        breadth2,
-                        breadth_balance,
-                        dominance_balance,
-                        active_overlap,
-                        expression_correlation,
-                        config,
-                    )
-                    evidence_basis = "expression_only_proxy"
-            elif (
-                config.detect_expression_loss
-                and loss1_fraction >= config.loss_fraction
-                and n_gene1_high == 0
-            ):
-                fate = "EXPRESSION_LOSS"
-                lost_copy = pair.gene1
-                confidence = min(0.95, 0.65 + 0.25 * loss1_fraction)
-                reason = (
-                    f"{pair.gene1} is inactive while {pair.gene2} is active in "
-                    f"{loss1_fraction:.0%} of evaluable tissues and never significantly dominates."
-                )
-            elif (
-                config.detect_expression_loss
-                and loss2_fraction >= config.loss_fraction
-                and n_gene2_high == 0
-            ):
-                fate = "EXPRESSION_LOSS"
-                lost_copy = pair.gene2
-                confidence = min(0.95, 0.65 + 0.25 * loss2_fraction)
-                reason = (
-                    f"{pair.gene2} is inactive while {pair.gene1} is active in "
-                    f"{loss2_fraction:.0%} of evaluable tissues and never significantly dominates."
-                )
-            elif science_class == "AED":
-                fate = "AED"
-                confidence = min(
-                    0.95,
-                    0.65 + 0.25 * _safe_ratio(max(n_gene1_high, n_gene2_high), n_evaluable),
-                )
-                reason = (
+                primary_class = "ASYMMETRICALLY_EXPRESSED"
+                primary_reason = (
                     f"One copy dominates {max(n_gene1_high, n_gene2_high)}/{n_evaluable} "
                     "evaluable tissues with no significant reversal."
                 )
             else:
-                fate = "NO_DIFFERENCE"
-                confidence = 0.60
-                reason = (
-                    "The pair does not meet reciprocal-dominance, AED, or expression-loss criteria."
-                )
+                primary_class = "NO_DIFFERENCE"
+                primary_reason = "The pair does not meet either directional classification rule."
 
         record = {
             "pair_id": pair.pair_id,
@@ -473,20 +376,14 @@ def classify_pairs(
             "role1": pair.role1,
             "role2": pair.role2,
             "ancestor_id": pair.ancestor_id,
-            "science_class": science_class,
-            "science_class_cn": SCIENCE_LABELS_CN[science_class],
-            "extended_fate": fate,
-            "extended_fate_cn": FATE_LABELS_CN[fate],
-            "evidence_basis": evidence_basis,
-            "confidence": round(float(confidence), 3),
+            "primary_class": primary_class,
+            "primary_class_cn": PRIMARY_LABELS_CN[primary_class],
             "major_copy": major,
             "minor_copy": minor,
-            "innovating_copy": innovating_copy,
-            "lost_copy": lost_copy,
             "n_evaluable_tissues": n_evaluable,
             "n_callable_tissues": n_callable,
             "n_active_tissues": n_active,
-            "aed_min_tissues": aed_min_tissues,
+            "asymmetry_min_tissues": asymmetry_min_tissues,
             "n_gene1_high": n_gene1_high,
             "n_gene2_high": n_gene2_high,
             "n_no_difference": n_no_difference,
@@ -496,119 +393,115 @@ def classify_pairs(
             "dominance_balance": round(dominance_balance, 6),
             "active_overlap": round(active_overlap, 6),
             "expression_correlation": expression_correlation,
-            "loss_fraction_gene1": round(loss1_fraction, 6),
-            "loss_fraction_gene2": round(loss2_fraction, 6),
-            "classification_reason": reason,
+            "silencing_fraction_gene1": round(silencing1_fraction, 6),
+            "silencing_fraction_gene2": round(silencing2_fraction, 6),
+            "primary_classification_reason": primary_reason,
         }
-        record.update(ancestor_metrics)
         records.append(record)
 
     return pd.DataFrame.from_records(records)
 
 
-def science_classifications(classifications: pd.DataFrame) -> pd.DataFrame:
-    """Return the publication-facing four-class Science result.
-
-    Extended fates are deliberately omitted so that the baseline result cannot be
-    confused with iDGRM's downstream methodological extension.
-    """
-
-    required = {"pair_id", "gene1", "gene2", "science_class", "science_class_cn"}
-    missing = required - set(classifications.columns)
-    if missing:
-        raise ValueError(f"Missing Science classification columns: {sorted(missing)}")
-    excluded = {
-        "extended_fate", "extended_fate_cn", "innovating_copy", "lost_copy",
-        "evidence_basis", "confidence", "classification_reason",
-    }
-    columns = [column for column in classifications.columns if column not in excluded]
-    result = classifications.loc[:, columns].copy()
-    result["science_class"] = result["science_class"].replace(
-        {"INSUFFICIENT_DATA": "UNMAPPED"}
-    )
-    result["science_class_cn"] = result["science_class"].map({
-        "UNMAPPED": "未映射/数据不足",
-        "NO_DIFFERENCE": "无显著差异",
-        "AED": "非对称表达",
-        "SUB_OR_NEO": "亚/新功能化候选",
-    })
-    result["classification_scheme"] = "SCIENCE_FOUR_CLASS"
-    return result
-
-
-def refine_science_candidates(
-    science: pd.DataFrame,
-    combined: pd.DataFrame,
+def refine_primary_candidates(
+    primary: pd.DataFrame,
+    evidence: pd.DataFrame,
+    pairs: pd.DataFrame,
     config: IDGRMConfig,
+    outgroup_tissue_expression: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Subdivide only AED and SUB_OR_NEO rows from a completed Science run."""
+    """Refine only eligible primary classes without altering their parent assignment."""
 
-    required = {"pair_id", "science_class"}
-    missing = required - set(science.columns)
+    required = {"pair_id", "primary_class"}
+    missing = required - set(primary.columns)
     if missing:
-        raise ValueError(f"Science input is missing columns: {sorted(missing)}")
-    if science["pair_id"].duplicated().any():
-        raise ValueError("Science input contains duplicate pair_id values")
-    allowed = {"UNMAPPED", "INSUFFICIENT_DATA", "NO_DIFFERENCE", "AED", "SUB_OR_NEO"}
-    unknown = sorted(set(science["science_class"].dropna().astype(str)) - allowed)
+        raise ValueError(f"Primary classification input is missing columns: {sorted(missing)}")
+    if primary["pair_id"].duplicated().any():
+        raise ValueError("Primary classification input contains duplicate pair_id values")
+    unknown = sorted(set(primary["primary_class"].dropna()) - set(PRIMARY_LABELS_CN))
     if unknown:
-        raise ValueError(f"Unknown Science class value(s): {unknown}")
+        raise ValueError(f"Unknown primary class value(s): {unknown}")
 
-    eligible = science.loc[science["science_class"].isin(["AED", "SUB_OR_NEO"])].copy()
-    details = combined.set_index("pair_id", drop=False)
-    missing_pairs = sorted(set(eligible["pair_id"]) - set(details.index))
-    if missing_pairs:
-        raise ValueError(f"{len(missing_pairs)} refinement pair(s) lack tissue evidence")
-
+    eligible_classes = {"ASYMMETRICALLY_EXPRESSED", "SUB_OR_NEOFUNCTIONALIZED"}
+    eligible = primary.loc[primary["primary_class"].isin(eligible_classes)].copy()
+    pair_lookup = {row.pair_id: row for row in pairs.itertuples(index=False)}
+    evidence_groups = {key: value.copy() for key, value in evidence.groupby("pair_id")}
     records: list[dict[str, object]] = []
+
     for source in eligible.itertuples(index=False):
-        row = details.loc[source.pair_id]
-        parent = str(source.science_class)
-        if parent == "AED":
-            loss1 = float(row["loss_fraction_gene1"])
-            loss2 = float(row["loss_fraction_gene2"])
-            if loss1 >= config.loss_fraction and int(row["n_gene1_high"]) == 0:
-                subtype, lost_copy = "AED_EXPRESSION_LOSS_LIKE", row["gene1"]
+        pair = pair_lookup.get(source.pair_id)
+        rows = evidence_groups.get(source.pair_id)
+        if pair is None or rows is None:
+            raise ValueError(f"Pair {source.pair_id!r} lacks pair metadata or tissue evidence")
+        active_union = rows["active1"].fillna(False).astype(bool) | rows["active2"].fillna(False).astype(bool)
+        finite_effect = pd.to_numeric(rows["log2fc_gene2_over_gene1"], errors="coerce").notna()
+        methods = rows["method"].astype(str)
+        has_stat = pd.to_numeric(rows["qvalue"], errors="coerce").notna() | pd.to_numeric(
+            rows["pvalue"], errors="coerce"
+        ).notna()
+        analysis_rows = rows.loc[active_union & finite_effect & (methods.eq("effect_only") | has_stat)].copy()
+
+        parent = str(source.primary_class)
+        innovating_copy = ""
+        silenced_copy = ""
+        confidence = 0.0
+        if parent == "ASYMMETRICALLY_EXPRESSED":
+            silencing1 = float(source.silencing_fraction_gene1)
+            silencing2 = float(source.silencing_fraction_gene2)
+            if silencing1 >= config.silencing_tissue_fraction and int(source.n_gene1_high) == 0:
+                subtype = "EXPRESSION_SILENCING_ASSOCIATED_ASYMMETRY"
+                silenced_copy = pair.gene1
                 reason = (
-                    f"Science AED refined as expression-loss-like: {lost_copy} is inactive "
-                    f"while its partner is active in {loss1:.0%} of evaluable tissues."
+                    f"{silenced_copy} is below the expression threshold while its partner is active "
+                    f"in {silencing1:.0%} of evaluable tissues. This is an expression-silencing pattern, "
+                    "not proof of gene-function loss."
                 )
-            elif loss2 >= config.loss_fraction and int(row["n_gene2_high"]) == 0:
-                subtype, lost_copy = "AED_EXPRESSION_LOSS_LIKE", row["gene2"]
+            elif silencing2 >= config.silencing_tissue_fraction and int(source.n_gene2_high) == 0:
+                subtype = "EXPRESSION_SILENCING_ASSOCIATED_ASYMMETRY"
+                silenced_copy = pair.gene2
                 reason = (
-                    f"Science AED refined as expression-loss-like: {lost_copy} is inactive "
-                    f"while its partner is active in {loss2:.0%} of evaluable tissues."
+                    f"{silenced_copy} is below the expression threshold while its partner is active "
+                    f"in {silencing2:.0%} of evaluable tissues. This is an expression-silencing pattern, "
+                    "not proof of gene-function loss."
                 )
             else:
-                subtype, lost_copy = "AED_DOMINANCE", ""
-                reason = "Science AED with consistent one-copy dominance but no strong expression-loss-like pattern."
-            innovating_copy = ""
-            basis = "expression_pattern_refinement"
+                subtype = "CONSISTENT_ASYMMETRIC_EXPRESSION"
+                reason = "One copy shows consistent directional dominance without pervasive partner silencing."
+            evidence_basis = "TARGET_SPECIES_EXPRESSION_PATTERN"
+            confidence = min(0.95, 0.65 + 0.25 * max(silencing1, silencing2))
         else:
-            subtype = str(row["extended_fate"])
-            if subtype not in {"SUBFUNCTIONALIZATION", "NEOFUNCTIONALIZATION", "AMBIGUOUS_SUB_NEO"}:
-                subtype = "AMBIGUOUS_SUB_NEO"
-            lost_copy = ""
-            innovating_copy = str(row.get("innovating_copy", ""))
-            reason = str(row["classification_reason"])
-            basis = str(row["evidence_basis"])
+            ancestor_available = (
+                outgroup_tissue_expression is not None
+                and bool(str(pair.ancestor_id).strip())
+                and str(pair.ancestor_id) in outgroup_tissue_expression.index
+            )
+            if ancestor_available:
+                outcome = _split_with_ancestor(
+                    pair, analysis_rows, outgroup_tissue_expression.loc[str(pair.ancestor_id)],
+                    config, float(source.dominance_balance),
+                )
+                subtype, innovating_copy, reason, confidence, _ = outcome
+                evidence_basis = "OUTGROUP_POLARIZED_EXPRESSION"
+            else:
+                subtype, innovating_copy, reason, confidence = _split_expression_only(
+                    pair, analysis_rows, int(source.n_gene1_high), int(source.n_gene2_high),
+                    float(source.expression_breadth_gene1), float(source.expression_breadth_gene2),
+                    float(source.breadth_balance), float(source.dominance_balance),
+                    float(source.active_overlap), float(source.expression_correlation), config,
+                )
+                evidence_basis = "TARGET_SPECIES_EXPRESSION_ONLY"
+            if not subtype:
+                subtype = "UNRESOLVED_SUB_OR_NEOFUNCTIONALIZATION"
 
         record = source._asdict()
         record.update({
-            "parent_science_class": parent,
-            "extended_subtype": subtype,
-            "extended_subtype_cn": REFINEMENT_LABELS_CN[subtype],
-            "lost_copy": lost_copy,
+            "parent_primary_class": parent,
+            "refined_class": subtype,
+            "refined_class_cn": REFINEMENT_LABELS_CN[subtype],
+            "silenced_copy": silenced_copy,
             "innovating_copy": innovating_copy,
-            "refinement_evidence_basis": basis,
+            "evidence_basis": evidence_basis,
+            "confidence": round(float(confidence), 3),
             "refinement_reason": reason,
         })
-        for metric in (
-            "major_copy", "minor_copy", "n_evaluable_tissues", "n_gene1_high",
-            "n_gene2_high", "expression_breadth_gene1", "expression_breadth_gene2",
-            "breadth_balance", "dominance_balance", "active_overlap",
-            "expression_correlation", "loss_fraction_gene1", "loss_fraction_gene2",
-        ):
-            record[metric] = row[metric]
         records.append(record)
     return pd.DataFrame.from_records(records)

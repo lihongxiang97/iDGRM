@@ -1,36 +1,22 @@
-# iDGRM 与原脚本的一致性说明
+# iDGRM 验证与质量控制
 
-## 结论
+## 软件级验证
 
-iDGRM 与原 Perl/R 流程在核心分类思想上兼容，但默认结果不承诺逐行完全一致。第一阶段明确输出论文四类；第二阶段只细分 AED 和 SUB_OR_NEO，并保留父级类别。
+自动测试覆盖输入格式、重复基因对去重、parent/daughter字段识别、组织级差异证据导入、四类初级分类、亚型细分和初级分类追溯。发布前要求全部测试通过，并检查Python字节码编译和Git差异格式。
 
-## 保持一致的部分
+## 分类不变量
 
-- 以组织内两个 copy 的表达差异为基本证据。
-- 默认使用两倍差异阈值，即 `|log2FC| >= 1`。
-- 两个方向各至少出现一次时记为 Science 的 `SUB_OR_NEO` 候选。
-- 一个方向跨至少约三分之一可评价组织持续占优、且无反向组织时记为 AED。
-- 其余可检验基因对记为 `NO_DIFFERENCE`。
-- 可直接导入旧流程产生的逐组织 `*.DESeq2.csv`，沿用其中的 `log2FoldChange`、`pvalue` 和 `padj`。
+1. 初级结果只能包含 `UNMAPPED`、`NO_DIFFERENCE`、`ASYMMETRICALLY_EXPRESSED` 和 `SUB_OR_NEOFUNCTIONALIZED`；
+2. 每个重复基因对只能有一个初级类别；
+3. 亚型细分只能接收 `ASYMMETRICALLY_EXPRESSED` 和 `SUB_OR_NEOFUNCTIONALIZED`；
+4. 亚型结果必须保留 `parent_primary_class`；
+5. 表达沉默相关模式不能成为独立一级类别；
+6. 缺少外群时必须明确记录未极化表达推断的证据等级。
 
-## 有意不同的部分
+## 数据级验证
 
-1. iDGRM 使用 `ceil(n/3)` 计算 AED 阈值；旧脚本的 `int(n/3)` 会向下取整，并可能在组织很少时得到零阈值。
-2. AED 分母只包含任一 copy 有表达且真正可检验的组织；重复不足的组织保留在证据表中，但不稀释分母。
-3. iDGRM 明确要求 reciprocal 两个方向均至少出现一次，避免旧版脚本在两个方向都为零时误判。
-4. 原始表达入口默认在每个组织内做配对检验，并进行组织内跨基因对的 BH 校正；旧脚本主要直接使用 DESeq2 的 `padj`。
-5. iDGRM 增加表达 on/off 过滤、缺失数据检查、完全重复 pair 去重和输入格式修复。
-6. 原脚本只输出合并的 sub/neo；iDGRM 进一步输出 `SUBFUNCTIONALIZATION`、`NEOFUNCTIONALIZATION` 或 `AMBIGUOUS_SUB_NEO`。
-7. `EXPRESSION_LOSS` 已取消一级类别地位，改为 AED 下的 `AED_EXPRESSION_LOSS_LIKE` 二级标签；数据不足在论文兼容输出中统一写为 `UNMAPPED`。
+正式数据分析应检查：严格唯一比对比例、整数计数完整性、样本与组织对应、重复数量、低计数过滤、有效长度及可唯一比对长度、P值分布、离散度拟合、效应量分布和阈值敏感性。若大量基因对在极严格阈值下显著，应先排除模型设定或copy间可比性问题，再解释为生物学差异。
 
-## 当前可验证程度
+## 与参考实现的比较
 
-原始目录中检测到 8 个最终 `*.pairs.RM.txt` 文件，但没有保留下来可供重算的逐组织 `*.DESeq2.csv`。因此目前已完成的是规则级、输入格式级和合成数据回归验证，而不是对原研究全部基因对的逐行一致率统计。
-
-原目录中的 18 个 `.pairs` 文件均已通过 iDGRM 读取验证，共覆盖 37,953 条去重前后相关记录；标准表头、`Parent/Daughter`、`Parental/Transposed`、无表头和不齐整表头格式均已测试。
-
-若要计算精确一致率，应提供当时的逐组织 DESeq2 输出，或用于生成这些输出的完整 count/TPM 表与样本—组织对应关系。建议同时报告：
-
-- `science_class` 的总体一致率和 Cohen's kappa；
-- 每类 precision、recall 和混淆矩阵；
-- 因 AED 分母修正、BH 校正、表达过滤和 sub/neo 拆分造成的差异数量。
+推荐报告初级四分类的一致率、Cohen's kappa、各类precision/recall和混淆矩阵。iDGRM对亚型的扩展应单独报告，不能与初级分类混合计算一致率。

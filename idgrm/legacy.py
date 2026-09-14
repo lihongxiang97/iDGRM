@@ -1,4 +1,4 @@
-"""Compatibility loader for the original per-tissue DESeq2 CSV workflow."""
+"""Loader for tissue-specific differential-expression result tables."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from .config import IDGRMConfig
 from .statistics import benjamini_hochberg
 
 
-DEFAULT_FILENAME_REGEX = r"^[^.]+\.[^.]+\.pairs\.(?P<tissue>.+)\.DESeq2\.csv$"
+DEFAULT_DIFFERENTIAL_EXPRESSION_FILENAME_REGEX = r"^[^.]+\.[^.]+\.pairs\.(?P<tissue>.+)\.DESeq2\.csv$"
 
 
 def _column_by_name(frame: pd.DataFrame, candidates: set[str]) -> str | None:
@@ -23,19 +23,19 @@ def _column_by_name(frame: pd.DataFrame, candidates: set[str]) -> str | None:
     return None
 
 
-def load_legacy_deseq2(
+def load_differential_expression_results(
     directory: str | Path,
     pairs: pd.DataFrame,
     config: IDGRMConfig,
     pattern: str = "*.DESeq2.csv",
-    filename_regex: str = DEFAULT_FILENAME_REGEX,
+    filename_regex: str = DEFAULT_DIFFERENTIAL_EXPRESSION_FILENAME_REGEX,
 ) -> tuple[pd.DataFrame, list[str]]:
-    """Convert old DESeq2 CSV files to iDGRM's tidy evidence table."""
+    """Convert tissue-specific DESeq2 tables to a normalized evidence table."""
 
     directory = Path(directory)
     files = sorted(directory.glob(pattern))
     if not files:
-        raise FileNotFoundError(f"No legacy DESeq2 files matched {directory / pattern}")
+        raise FileNotFoundError(f"No differential-expression files matched {directory / pattern}")
     matcher = re.compile(filename_regex)
 
     key_map: dict[str, tuple[object, bool]] = {}
@@ -130,7 +130,7 @@ def load_legacy_deseq2(
                     "log2fc_gene2_over_gene1": lfc,
                     "pvalue": float(pvalue) if np.isfinite(pvalue) else float("nan"),
                     "qvalue": float(qvalue) if np.isfinite(qvalue) else float("nan"),
-                    "method": "legacy_deseq2",
+                    "method": "precomputed_differential_expression",
                 }
             )
 

@@ -1,145 +1,94 @@
-"""Command-line interface for iDGRM."""
+"""Command-line interface for the current iDGRM workflow."""
 
 from __future__ import annotations
 
 import argparse
 import sys
-from contextlib import ExitStack
-from importlib.resources import as_file, files
 from pathlib import Path
 
 from . import __version__
 from .config import IDGRMConfig
-from .legacy import DEFAULT_FILENAME_REGEX
+from .legacy import DEFAULT_DIFFERENTIAL_EXPRESSION_FILENAME_REGEX
 from .pipeline import (
-    run_analysis,
-    run_legacy_analysis,
-    run_refinement_analysis,
-    run_science_analysis,
-    run_science_legacy_analysis,
+    run_primary_classification,
+    run_primary_classification_from_differential_expression,
+    run_subtype_refinement,
 )
 
 
-def _add_config_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--log2fc", type=float, default=1.0, help="Absolute log2 fold-change cutoff (default: 1)")
-    parser.add_argument("--alpha", type=float, default=0.001, help="P/q-value cutoff (default: 0.001)")
-    parser.add_argument("--p-adjust", choices=["bh", "none"], default="bh", help="Multiple-testing policy")
-    parser.add_argument("--min-expression", type=float, default=1.0, help="Expression on/off threshold")
-    parser.add_argument("--ancestor-min-expression", type=float, default=None, help="Optional separate outgroup on/off threshold")
-    parser.add_argument("--min-active-fraction", type=float, default=0.5, help="Minimum active-replicate fraction")
-    parser.add_argument("--pseudocount", type=float, default=0.1, help="Pseudocount before log ratios")
-    parser.add_argument("--min-replicates", type=int, default=2, help="Minimum paired replicates per tissue")
-    parser.add_argument("--min-tissues", type=int, default=2, help="Minimum evaluable tissues per pair")
-    parser.add_argument("--aed-fraction", type=float, default=1.0 / 3.0, help="AED dominance fraction")
-    parser.add_argument("--loss-fraction", type=float, default=0.8, help="Expression-loss tissue fraction")
-    parser.add_argument("--no-expression-loss", action="store_true", help="Do not emit EXPRESSION_LOSS")
-    parser.add_argument("--sub-balance", type=float, default=0.5, help="Minimum reciprocal dominance balance")
-    parser.add_argument("--neo-breadth-ratio", type=float, default=0.5, help="Maximum narrow/broad breadth ratio for neo proxy")
-    parser.add_argument("--gain-fold", type=float, default=4.0, help="Minimum gain over an inactive ancestor")
+def _add_configuration_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--absolute-log2-fold-change", type=float, default=1.0)
+    parser.add_argument("--significance-threshold", type=float, default=0.001)
+    parser.add_argument("--multiple-testing-correction", choices=["bh", "none"], default="bh")
+    parser.add_argument("--expression-threshold", type=float, default=1.0)
+    parser.add_argument("--outgroup-expression-threshold", type=float, default=None)
+    parser.add_argument("--minimum-active-replicate-fraction", type=float, default=0.5)
+    parser.add_argument("--log-ratio-pseudocount", type=float, default=0.1)
+    parser.add_argument("--minimum-biological-replicates", type=int, default=2)
+    parser.add_argument("--minimum-evaluable-tissues", type=int, default=2)
+    parser.add_argument("--asymmetry-tissue-fraction", type=float, default=1.0 / 3.0)
+    parser.add_argument("--silencing-tissue-fraction", type=float, default=0.8)
+    parser.add_argument("--subfunctionalization-dominance-balance", type=float, default=0.5)
+    parser.add_argument("--neofunctionalization-breadth-ratio", type=float, default=0.5)
+    parser.add_argument("--outgroup-gain-fold-change", type=float, default=4.0)
 
 
-def _config_from_args(args: argparse.Namespace) -> IDGRMConfig:
+def _configuration(args: argparse.Namespace) -> IDGRMConfig:
     return IDGRMConfig(
-        log2fc_threshold=args.log2fc,
-        alpha=args.alpha,
-        p_adjust=args.p_adjust,
-        min_expression=args.min_expression,
-        ancestor_min_expression=args.ancestor_min_expression,
-        min_active_fraction=args.min_active_fraction,
-        pseudocount=args.pseudocount,
-        min_replicates=args.min_replicates,
-        min_evaluable_tissues=args.min_tissues,
-        aed_fraction=args.aed_fraction,
-        loss_fraction=args.loss_fraction,
-        detect_expression_loss=not args.no_expression_loss,
-        sub_dominance_balance_min=args.sub_balance,
-        neo_breadth_ratio_max=args.neo_breadth_ratio,
-        gain_fold=args.gain_fold,
+        log2fc_threshold=args.absolute_log2_fold_change,
+        alpha=args.significance_threshold,
+        p_adjust=args.multiple_testing_correction,
+        min_expression=args.expression_threshold,
+        ancestor_min_expression=args.outgroup_expression_threshold,
+        min_active_fraction=args.minimum_active_replicate_fraction,
+        pseudocount=args.log_ratio_pseudocount,
+        min_replicates=args.minimum_biological_replicates,
+        min_evaluable_tissues=args.minimum_evaluable_tissues,
+        asymmetry_tissue_fraction=args.asymmetry_tissue_fraction,
+        silencing_tissue_fraction=args.silencing_tissue_fraction,
+        sub_dominance_balance_min=args.subfunctionalization_dominance_balance,
+        neo_breadth_ratio_max=args.neofunctionalization_breadth_ratio,
+        gain_fold=args.outgroup_gain_fold_change,
     ).validate()
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="idgrm",
-        description="Classify duplicated-gene expression fates across tissues.",
+        description="Hierarchical classification of duplicate-gene expression evolution.",
     )
     parser.add_argument("--version", action="version", version=f"iDGRM {__version__}")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    commands = parser.add_subparsers(dest="command", required=True)
 
-    science = subparsers.add_parser(
-        "science", help="Stage 1: reproduce the paper's four-class classification"
+    primary = commands.add_parser(
+        "classify-primary",
+        help="Assign four primary expression-pattern classes to duplicate-gene pairs.",
     )
-    science.add_argument("--expression", required=True, help="Genes-by-samples/tissues CSV or TSV")
-    science.add_argument("--pairs", required=True, help="Duplicate-pair CSV or TSV")
-    science.add_argument("--samples", help="Sample metadata with sample_id and tissue")
-    science.add_argument("--output", required=True, help="Output directory")
-    science.add_argument(
-        "--normalization", choices=["none", "cpm", "median-ratio"], default="none"
+    source = primary.add_mutually_exclusive_group(required=True)
+    source.add_argument("--expression-matrix")
+    source.add_argument("--differential-expression-dir")
+    primary.add_argument("--sample-metadata")
+    primary.add_argument("--duplicate-pairs", required=True)
+    primary.add_argument("--output-dir", required=True)
+    primary.add_argument("--normalization", choices=["none", "cpm", "median-ratio"], default="none")
+    primary.add_argument("--differential-expression-file-pattern", default="*.DESeq2.csv")
+    primary.add_argument(
+        "--tissue-name-regex", default=DEFAULT_DIFFERENTIAL_EXPRESSION_FILENAME_REGEX
     )
-    _add_config_arguments(science)
+    _add_configuration_arguments(primary)
 
-    science_legacy = subparsers.add_parser(
-        "science-legacy", help="Stage 1 from per-tissue DESeq2 CSV files"
+    refine = commands.add_parser(
+        "refine-subtypes",
+        help="Refine eligible primary classes without altering the primary assignment.",
     )
-    science_legacy.add_argument("--deseq-dir", required=True)
-    science_legacy.add_argument("--pairs", required=True)
-    science_legacy.add_argument("--output", required=True)
-    science_legacy.add_argument("--pattern", default="*.DESeq2.csv")
-    science_legacy.add_argument("--filename-regex", default=DEFAULT_FILENAME_REGEX)
-    _add_config_arguments(science_legacy)
-
-    refine = subparsers.add_parser(
-        "refine", help="Stage 2: subdivide Science AED and SUB_OR_NEO candidates"
-    )
-    refine.add_argument("--science-classifications", required=True)
-    refine.add_argument("--evidence", required=True, help="Stage-1 tissue_evidence.tsv")
-    refine.add_argument("--pairs", required=True, help="The same duplicate-pair table used in stage 1")
-    refine.add_argument("--ancestor-expression", help="Optional outgroup ortholog expression matrix")
-    refine.add_argument("--ancestor-samples", help="Optional outgroup sample metadata")
-    refine.add_argument("--output", required=True, help="Output directory")
-    refine.add_argument(
-        "--normalization", choices=["none", "cpm", "median-ratio"], default="none"
-    )
-    _add_config_arguments(refine)
-
-    classify = subparsers.add_parser("classify", help="Analyze an expression matrix")
-    classify.add_argument("--expression", required=True, help="Genes-by-samples/tissues CSV or TSV")
-    classify.add_argument("--pairs", required=True, help="Duplicate-pair CSV or TSV")
-    classify.add_argument("--samples", help="Sample metadata with sample_id and tissue")
-    classify.add_argument("--ancestor-expression", help="Optional outgroup ortholog expression matrix")
-    classify.add_argument("--ancestor-samples", help="Optional outgroup sample metadata")
-    classify.add_argument("--output", required=True, help="Output directory")
-    classify.add_argument(
-        "--normalization",
-        choices=["none", "cpm", "median-ratio"],
-        default="none",
-        help="Column normalization before testing",
-    )
-    _add_config_arguments(classify)
-
-    legacy = subparsers.add_parser("legacy", help="Analyze original per-tissue DESeq2 CSV files")
-    legacy.add_argument("--deseq-dir", required=True, help="Directory containing *.DESeq2.csv")
-    legacy.add_argument("--pairs", required=True, help="Duplicate-pair CSV or TSV")
-    legacy.add_argument("--output", required=True, help="Output directory")
-    legacy.add_argument("--pattern", default="*.DESeq2.csv", help="File glob inside --deseq-dir")
-    legacy.add_argument(
-        "--filename-regex",
-        default=DEFAULT_FILENAME_REGEX,
-        help="Regex with a named 'tissue' capture group",
-    )
-    legacy.add_argument("--ancestor-expression", help="Optional outgroup ortholog expression matrix")
-    legacy.add_argument("--ancestor-samples", help="Optional outgroup sample metadata")
-    legacy.add_argument(
-        "--normalization",
-        choices=["none", "cpm", "median-ratio"],
-        default="none",
-    )
-    _add_config_arguments(legacy)
-
-    demo = subparsers.add_parser("demo", help="Run the bundled synthetic example")
-    demo.add_argument("--output", default="results/demo", help="Output directory")
-    demo.add_argument("--without-ancestor", action="store_true", help="Use pair-only proxy rules")
-    _add_config_arguments(demo)
+    refine.add_argument("--primary-classifications", required=True)
+    refine.add_argument("--tissue-evidence", required=True)
+    refine.add_argument("--duplicate-pairs", required=True)
+    refine.add_argument("--outgroup-expression-matrix")
+    refine.add_argument("--outgroup-sample-metadata")
+    refine.add_argument("--output-dir", required=True)
+    refine.add_argument("--normalization", choices=["none", "cpm", "median-ratio"], default="none")
+    _add_configuration_arguments(refine)
     return parser
 
 
@@ -154,92 +103,43 @@ def _print_result(result: object) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    args = build_parser().parse_args(argv)
     try:
-        config = _config_from_args(args)
-        if args.command == "science":
-            result = run_science_analysis(
-                expression_path=args.expression,
-                pairs_path=args.pairs,
-                samples_path=args.samples,
-                output_dir=args.output,
-                config=config,
-                normalization=args.normalization,
-            )
-        elif args.command == "science-legacy":
-            result = run_science_legacy_analysis(
-                deseq_directory=args.deseq_dir,
-                pairs_path=args.pairs,
-                output_dir=args.output,
-                config=config,
-                pattern=args.pattern,
-                filename_regex=args.filename_regex,
-            )
-        elif args.command == "refine":
-            result = run_refinement_analysis(
-                science_classifications_path=args.science_classifications,
-                evidence_path=args.evidence,
-                pairs_path=args.pairs,
-                output_dir=args.output,
-                config=config,
-                ancestor_expression_path=args.ancestor_expression,
-                ancestor_samples_path=args.ancestor_samples,
-                normalization=args.normalization,
-            )
-        elif args.command == "classify":
-            result = run_analysis(
-                expression_path=args.expression,
-                pairs_path=args.pairs,
-                samples_path=args.samples,
-                ancestor_expression_path=args.ancestor_expression,
-                ancestor_samples_path=args.ancestor_samples,
-                output_dir=args.output,
-                config=config,
-                normalization=args.normalization,
-            )
-        elif args.command == "legacy":
-            result = run_legacy_analysis(
-                deseq_directory=args.deseq_dir,
-                pairs_path=args.pairs,
-                output_dir=args.output,
-                config=config,
-                pattern=args.pattern,
-                filename_regex=args.filename_regex,
-                ancestor_expression_path=args.ancestor_expression,
-                ancestor_samples_path=args.ancestor_samples,
-                normalization=args.normalization,
-            )
-        else:
-            data = files("idgrm.data")
-            with ExitStack() as stack:
-                example_paths = {
-                    name: stack.enter_context(as_file(data / name))
-                    for name in (
-                        "expression.tsv",
-                        "pairs.tsv",
-                        "samples.tsv",
-                        "ancestor_expression.tsv",
-                        "ancestor_samples.tsv",
-                    )
-                }
-                result = run_analysis(
-                    expression_path=example_paths["expression.tsv"],
-                    pairs_path=example_paths["pairs.tsv"],
-                    samples_path=example_paths["samples.tsv"],
-                    ancestor_expression_path=(
-                        None
-                        if args.without_ancestor
-                        else example_paths["ancestor_expression.tsv"]
-                    ),
-                    ancestor_samples_path=(
-                        None
-                        if args.without_ancestor
-                        else example_paths["ancestor_samples.tsv"]
-                    ),
-                    output_dir=args.output,
+        config = _configuration(args)
+        if args.command == "classify-primary":
+            if args.expression_matrix:
+                if args.sample_metadata is None:
+                    raise ValueError("--sample-metadata is required for replicate-aware inference")
+                result = run_primary_classification(
+                    expression_matrix_path=args.expression_matrix,
+                    sample_metadata_path=args.sample_metadata,
+                    duplicate_pairs_path=args.duplicate_pairs,
+                    output_dir=args.output_dir,
                     config=config,
+                    normalization=args.normalization,
                 )
+            else:
+                if args.sample_metadata is not None:
+                    raise ValueError("--sample-metadata is not used with --differential-expression-dir")
+                result = run_primary_classification_from_differential_expression(
+                    differential_expression_dir=args.differential_expression_dir,
+                    duplicate_pairs_path=args.duplicate_pairs,
+                    output_dir=args.output_dir,
+                    config=config,
+                    file_pattern=args.differential_expression_file_pattern,
+                    tissue_name_regex=args.tissue_name_regex,
+                )
+        else:
+            result = run_subtype_refinement(
+                primary_classifications_path=args.primary_classifications,
+                tissue_evidence_path=args.tissue_evidence,
+                duplicate_pairs_path=args.duplicate_pairs,
+                outgroup_expression_matrix_path=args.outgroup_expression_matrix,
+                outgroup_sample_metadata_path=args.outgroup_sample_metadata,
+                output_dir=args.output_dir,
+                config=config,
+                normalization=args.normalization,
+            )
         _print_result(result)
         return 0
     except Exception as exc:

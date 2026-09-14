@@ -1,105 +1,60 @@
 # iDGRM 方法说明
 
-## 1. 论文方法的可计算部分
+## 1. 方法依据
 
-来源：Xun Lan 与 Jonathan K. Pritchard，*Coregulation of tandem duplicate genes slows evolution of subfunctionalization in mammals*，Science 352:1009-1013 (2016)，DOI: [10.1126/science.aad8411](https://doi.org/10.1126/science.aad8411)。本地输入论文为 `lan2016.pdf`。
+初级分类规则依据 Lan 与 Pritchard（2016，Science 352:1009–1013，DOI: 10.1126/science.aad8411）描述的重复基因跨组织表达模式。期刊名称只用于文献溯源，不用于软件命令、参数、字段或文件名。
 
-论文的分析链为：
+## 2. 严格定量要求
 
-1. 去除已注释假基因后，以 reciprocal best hit 构建 1,444 对高置信重复基因；要求编码序列可比对比例大于 80%，平均序列一致性大于 50%。
-2. 以同义替换率 dS 近似重复时间，并用系统发育分布进行交叉校正。论文重点分析 dS < 0.7 的胎盘哺乳动物时期重复基因。
-3. 为避免相似 copy 之间的 RNA-seq 错配，只使用两个 copy 都可唯一、无偏归属的同源位置估计表达比；代价是部分极年轻重复基因不可评价。
-4. 使用 GTEx 的 46 个成人组织，每组织 10 个个体；并以 26 个小鼠组织复现主要结论。
-5. 每对基因中，总体表达更高者为 major，另一者为 minor。
-6. 若两个 copy 各自在至少一个组织显著高于对方，定义为 potential sub-/neofunctionalization：至少 2 倍差异、paired t-test P < 0.001。
-7. 若 major 在“任一 copy 有表达”的组织中至少 1/3 显著更高，且没有任何组织发生显著反向，则定义为 AED（asymmetrically expressed duplicate）。
-8. 其余为 no difference。论文另外通过外群单拷贝正交基因的总表达，检验年轻重复基因的 dosage sharing，而不是把 dosage sharing 直接作为上述三分类的一类。
+高度相似的重复基因容易发生read错误归属。正式分析应仅计入能够完全匹配且可唯一归属一个copy的reads，并保存比对规则、参考基因组版本、注释版本和计数方法。整数read counts应使用count-based差异表达模型；TPM只用于表达展示及表达状态辅助判定。
 
-## 2. 原脚本的实现
+## 3. 组织级表达证据
 
-原始 Perl/R 流程大体包括：HISAT2 比对；TPMCalculator 计算 unique exon reads/TPM；按组织合并 2-3 个生物学重复；为每种重复模式提取基因对 count 矩阵；逐组织运行 DESeq2；最后由 `IDGRM-v3-new.pl` 汇总 `log2FoldChange` 与 `padj`。
+每个组织记录两个copy的表达量、表达状态、log2 fold change、P值、校正后P值和显著方向。默认显著方向要求：
 
-脚本采用 `|log2FC| > 1`、`padj < 0.001` 识别组织内显著方向，并以显著方向出现次数确定 major/minor。一个 copy 至少一次显著占优且另一个 copy 也至少一次显著占优时，输出合并类别 `Sub-/neofunctionalized`。单向占优达到约 1/3 组织且无反向趋势时输出 AED，其余输出 No difference。
+```text
+absolute log2 fold change >= 1
+adjusted P value <= 0.001
+```
 
-## 3. iDGRM 的组织级统计证据
+若输入逐组织差异表达结果，iDGRM直接读取其效应值和显著性。若输入带生物学重复的表达矩阵，软件构建组织级证据；正式研究仍建议使用适用于整数计数的差异表达工具。
 
-对于带重复样本的归一化表达矩阵，iDGRM 在每个组织内对两个 copy 的同一样本表达做配对检验。默认在 `log2(expression + 0.1)` 上进行 paired t-test。每个组织内跨全部基因对进行 Benjamini-Hochberg 校正：
+## 4. 初级表达模式分类
 
-\[
-\operatorname{log2FC}_{2/1,t}=\log_2\frac{\bar{x}_{2,t}+c}{\bar{x}_{1,t}+c}
-\]
+初级分类为四个互斥类别：
 
-其中默认 `c=0.1`。显著方向要求：
+1. `UNMAPPED`：缺乏足够的可唯一归属表达证据，无法可靠分类；
+2. `NO_DIFFERENCE`：未达到方向性表达差异规则；
+3. `ASYMMETRICALLY_EXPRESSED`：同一copy在至少 `ceil(n_evaluable × asymmetry_tissue_fraction)` 个组织中显著占优，且不存在显著反向；
+4. `SUB_OR_NEOFUNCTIONALIZED`：gene1-high和gene2-high各至少出现一次。
 
-\[
-|\operatorname{log2FC}|\ge 1,\quad q\le 0.001.
-\]
+初级分类不包含任何iDGRM新增的一级命运类别。
 
-一个 copy 在组织内被判为 expressed，需要组织中位数达到 `min_expression`，且至少 `min_active_fraction` 的重复达到该阈值。AED 的分母严格使用“任一 copy 有表达、fold-change 有限且达到最少重复数，因而可实际检验”的组织数，阈值为 `ceil(n/3)`；重复不足的组织会保留在组织证据表中，但不会稀释分类分母。
+## 5. 亚型细分
 
-如果输入列已经是组织均值，iDGRM 使用 effect-only 模式：满足表达 on/off 和 fold-change 即给出方向，不产生 P/q 值。该模式适合探索，不宜替代正式差异表达统计。
+亚型细分读取 `primary_classifications.tsv` 和 `tissue_evidence.tsv`，只处理两个方向性类别，并保留 `parent_primary_class`。
 
-## 4. 明确的两阶段分类体系
+### 5.1 非对称表达亚型
 
-### 4.1 第一阶段：Science 标准四分类
+- `CONSISTENT_ASYMMETRIC_EXPRESSION`：一个copy呈稳定方向性优势，但伙伴copy不满足广泛表达沉默标准；
+- `EXPRESSION_SILENCING_ASSOCIATED_ASYMMETRY`：一个copy在至少 `silencing_tissue_fraction` 的可评价组织中低于表达阈值，而伙伴copy处于表达状态，并且沉默copy从未显著占优。
 
-第一阶段只输出四个互斥类别：`UNMAPPED`、`NO_DIFFERENCE`、`AED` 和
-`SUB_OR_NEO`。这一结果用于复现论文框架和开展跨研究比较，不包含任何 iDGRM
-新增的一级命运类别。
+后者描述表达模式，不证明基因功能丢失、假基因化或非功能化。
 
-### 4.2 第二阶段：iDGRM 扩展细分
+### 5.2 亚功能化与新功能化亚型
 
-第二阶段必须读取第一阶段的 `science_classifications.tsv` 和
-`tissue_evidence.tsv`，而不是重新定义主分类。它只处理：
+有外群单拷贝正交基因表达时：
 
-- `AED`：细分为 `AED_DOMINANCE` 和 `AED_EXPRESSION_LOSS_LIKE`；
-- `SUB_OR_NEO`：细分为 `SUBFUNCTIONALIZATION`、`NEOFUNCTIONALIZATION` 和
-  `AMBIGUOUS_SUB_NEO`。
+- `SUBFUNCTIONALIZATION`：两个copy在不同祖先表达组织中分别占优，二者表达并集覆盖规定比例的祖先表达域，且没有可靠的新表达域增益；
+- `NEOFUNCTIONALIZATION`：一个copy在祖先未表达组织获得显著表达域，而另一个copy保留足够的祖先表达域；
+- `UNRESOLVED_SUB_OR_NEOFUNCTIONALIZATION`：现有证据不能唯一支持上述任一机制。
 
-每行扩展结果保留 `parent_science_class`，确保新增判断可以追溯到论文类别。
-表达丢失样模式属于 AED 的二级标签，不再作为第五个一级类别。
+没有外群表达时，软件依据表达广度、组织互补性、方向平衡和表达相关性进行未极化推断，并将 `evidence_basis` 记录为 `TARGET_SPECIES_EXPRESSION_ONLY`。此时的新功能化判断不是祖先状态支持的最终结论。
 
-## 5. sub/neo 拆分规则
+## 6. 输出追溯性
 
-### 5.1 有外群单拷贝正交基因：推荐模式
+初级分类和亚型细分分别保存输入文件SHA-256、参数、软件版本、警告及生成时间。亚型结果中的每一行都保留初级分类，因此不会因扩展分析改变参考分类结果。
 
-首先必须满足 Science 的 reciprocal 条件，即 gene1-high 和 gene2-high 各至少出现一次。
+## 7. 解释限制
 
-亚功能化要求同时满足：
-
-- 两个 copy 分别在至少一个“祖先有表达”组织占优；
-- 两个 copy 的表达并集覆盖至少 80% 的祖先表达组织；
-- 两个方向的组织数量较平衡，`min(n1,n2)/max(n1,n2) >= 0.5`；
-- 没有 copy 在祖先未表达组织形成可靠新表达增益。
-
-新功能化要求：
-
-- 恰有一个 copy 在至少一个祖先未表达组织占优且表达开启；
-- 该 copy 相对祖先表达至少增加 4 倍；
-- 另一个 copy 在祖先表达组织中仍至少一次占优，并保留至少 60% 的祖先表达广度；
-- 祖先相似度或覆盖度支持“一个 copy 保留、另一个 copy 创新”的方向。
-
-若两个 copy 都出现祖先未表达组织增益，或祖先覆盖/相似度不足，则输出 `AMBIGUOUS_SUB_NEO`。
-
-### 5.2 无外群：expression-only proxy
-
-无外群时不能知道某个组织表达域是祖先保留还是后生获得，因此 iDGRM 明确使用代理规则：
-
-- sub proxy：两个方向均存在，方向数量平衡度至少 0.5，表达广度平衡度至少 0.5，并且满足至少一种互补证据——两个 copy 各有 on/off 特异组织、跨组织表达相关不高于 0，或共同开启组织比例不高于 0.5。
-- neo proxy：一个 copy 的表达广度至少为 2/3；另一个 copy 的广度不到前者的 1/2；窄谱 copy 至少有一个“自身表达而伙伴不表达”的占优组织；窄谱占优组织不超过全部可评价组织的 1/3；广谱 copy 在其他组织至少一次占优。
-- 其他 reciprocal 模式保留为歧义型。
-
-因此，expression-only 的 `NEOFUNCTIONALIZATION` 是“新表达域代理”，并不是功能获得的最终证明。
-
-## 6. AED 的扩展细分
-
-- `AED_DOMINANCE`：一侧持续显著占优，但不满足强表达关闭模式。
-- `AED_EXPRESSION_LOSS_LIKE`：某 copy 在至少 80% 可评价组织中关闭而伙伴开启，且从未显著占优。它仍属于 Science AED，只表示表达层面的非功能化倾向，不等同于假基因或已证实的功能丢失。
-
-## 7. 解释与验证建议
-
-1. 植物组织应尽量进行发育阶段和器官同源匹配；不对应的组织不能作为祖先 gain/loss 证据。
-2. 跨物种 TPM 绝对量并不天然可比。祖先模式首先依赖表达/不表达状态，其次才使用 fold 和 profile similarity。
-3. 年轻、高相似度重复基因必须处理多重比对；否则 minor copy 的低表达可能只是 read assignment 偏差。
-4. neo 最好联合 parent/daughter 极性、多个外群、选择压力、结构域、互作和表型证据。
-5. 阈值应做灵敏度分析；`run_metadata.json` 保存每次参数与输入哈希，便于完全复现。
+新功能化的可靠证明需要结合外群表达、编码序列选择、蛋白结构或结构域变化、互作网络、表型和功能实验。表达沉默也需要结合更多组织、发育阶段、环境处理、基因组注释和可唯一比对长度进行验证。

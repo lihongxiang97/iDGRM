@@ -238,7 +238,7 @@ def read_samples(path: str | Path, expression_columns: Iterable[str]) -> pd.Data
 
 
 def read_pairs(path: str | Path) -> pd.DataFrame:
-    """Read modern or legacy duplicate-pair tables into a canonical schema."""
+    """Read supported duplicate-pair tables into a canonical schema."""
 
     frame = read_delimited(path)
     if frame.empty:

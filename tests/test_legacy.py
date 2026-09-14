@@ -4,8 +4,8 @@ import unittest
 
 from idgrm.config import IDGRMConfig
 from idgrm.io import read_pairs
-from idgrm.legacy import load_legacy_deseq2
-from idgrm.pipeline import run_legacy_analysis
+from idgrm.legacy import load_differential_expression_results
+from idgrm.pipeline import run_primary_classification_from_differential_expression
 
 
 class LegacyTests(unittest.TestCase):
@@ -22,20 +22,20 @@ class LegacyTests(unittest.TestCase):
                 header + '"G-1-G-2",10,2,0.1,20,1e-8,1e-7\n', encoding="utf-8"
             )
             pairs = read_pairs(pair_path)
-            evidence, warnings = load_legacy_deseq2(temp, pairs, IDGRMConfig())
+            evidence, warnings = load_differential_expression_results(temp, pairs, IDGRMConfig())
             self.assertFalse(warnings)
             self.assertEqual(set(evidence["direction"]), {"gene1_high", "gene2_high"})
             self.assertEqual(set(evidence["pair_id"]), {"G-1__G-2"})
 
-            result = run_legacy_analysis(
-                deseq_directory=temp,
-                pairs_path=pair_path,
+            result = run_primary_classification_from_differential_expression(
+                differential_expression_dir=temp,
+                duplicate_pairs_path=pair_path,
                 output_dir=temp / "out",
                 config=IDGRMConfig(),
             )
-            self.assertEqual(result.classifications.iloc[0]["science_class"], "SUB_OR_NEO")
             self.assertEqual(
-                result.classifications.iloc[0]["extended_fate"], "AMBIGUOUS_SUB_NEO"
+                result.classifications.iloc[0]["primary_class"],
+                "SUB_OR_NEOFUNCTIONALIZED",
             )
             for output_path in result.output_paths.values():
                 self.assertTrue(output_path.exists(), output_path)

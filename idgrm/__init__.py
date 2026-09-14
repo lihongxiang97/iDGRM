@@ -3,15 +3,13 @@
 from .config import IDGRMConfig
 from .pipeline import (
     AnalysisResult,
-    run_analysis,
-    run_legacy_analysis,
-    run_refinement_analysis,
-    run_science_analysis,
-    run_science_legacy_analysis,
+    run_primary_classification,
+    run_primary_classification_from_differential_expression,
+    run_subtype_refinement,
 )
 
 __all__ = [
-    "IDGRMConfig", "AnalysisResult", "run_analysis", "run_legacy_analysis",
-    "run_science_analysis", "run_science_legacy_analysis", "run_refinement_analysis",
+    "IDGRMConfig", "AnalysisResult", "run_primary_classification",
+    "run_primary_classification_from_differential_expression", "run_subtype_refinement",
 ]
-__version__ = "0.2.0"
+__version__ = "0.3.0"

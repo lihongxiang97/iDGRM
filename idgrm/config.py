@@ -11,8 +11,8 @@ from typing import Any
 class IDGRMConfig:
     """Thresholds used to construct tissue evidence and classify gene pairs.
 
-    Defaults retain the main Science paper's twofold and 0.001 cutoffs while
-    using Benjamini-Hochberg correction across gene pairs within each tissue.
+    Defaults use a twofold effect threshold and 0.001 significance threshold,
+    with Benjamini-Hochberg correction across gene pairs within each tissue.
     """
 
     log2fc_threshold: float = 1.0
@@ -24,9 +24,8 @@ class IDGRMConfig:
     pseudocount: float = 0.1
     min_replicates: int = 2
     min_evaluable_tissues: int = 2
-    aed_fraction: float = 1.0 / 3.0
-    loss_fraction: float = 0.8
-    detect_expression_loss: bool = True
+    asymmetry_tissue_fraction: float = 1.0 / 3.0
+    silencing_tissue_fraction: float = 0.8
 
     # Pair-only sub/neo proxy thresholds.
     sub_dominance_balance_min: float = 0.5
@@ -62,8 +61,8 @@ class IDGRMConfig:
         fractions = {
             "alpha": self.alpha,
             "min_active_fraction": self.min_active_fraction,
-            "aed_fraction": self.aed_fraction,
-            "loss_fraction": self.loss_fraction,
+            "asymmetry_tissue_fraction": self.asymmetry_tissue_fraction,
+            "silencing_tissue_fraction": self.silencing_tissue_fraction,
             "sub_dominance_balance_min": self.sub_dominance_balance_min,
             "sub_breadth_balance_min": self.sub_breadth_balance_min,
             "sub_max_active_overlap": self.sub_max_active_overlap,
