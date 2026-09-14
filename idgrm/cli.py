@@ -18,7 +18,7 @@ from .pipeline import (
 
 def _add_configuration_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--absolute-log2-fold-change", type=float, default=1.0)
-    parser.add_argument("--significance-threshold", type=float, default=0.001)
+    parser.add_argument("--significance-threshold", type=float, default=0.05)
     parser.add_argument("--multiple-testing-correction", choices=["bh", "none"], default="bh")
     parser.add_argument("--expression-threshold", type=float, default=1.0)
     parser.add_argument("--outgroup-expression-threshold", type=float, default=None)

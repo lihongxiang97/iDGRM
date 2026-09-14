@@ -47,7 +47,7 @@ def _config(prefix: str) -> tuple[IDGRMConfig, str]:
         min_tissues = st.number_input("最少可评价组织数", 1, value=2, step=1, key=f"{prefix}_nt")
     with right:
         alpha = st.number_input(
-            "P/q 阈值", 0.000001, 1.0, value=0.001, format="%.6f", key=f"{prefix}_alpha"
+            "BH校正后P值阈值", 0.000001, 1.0, value=0.05, format="%.6f", key=f"{prefix}_alpha"
         )
         p_adjust = st.selectbox("多重检验", ["bh", "none"], key=f"{prefix}_padj")
         normalization = st.selectbox(

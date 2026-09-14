@@ -11,12 +11,12 @@ from typing import Any
 class IDGRMConfig:
     """Thresholds used to construct tissue evidence and classify gene pairs.
 
-    Defaults use a twofold effect threshold and 0.001 significance threshold,
+    Defaults use a twofold effect threshold and a 0.05 false-discovery-rate threshold,
     with Benjamini-Hochberg correction across gene pairs within each tissue.
     """
 
     log2fc_threshold: float = 1.0
-    alpha: float = 0.001
+    alpha: float = 0.05
     p_adjust: str = "bh"
     min_expression: float = 1.0
     ancestor_min_expression: float | None = None

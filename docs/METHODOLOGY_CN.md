@@ -14,7 +14,7 @@
 
 ```text
 absolute log2 fold change >= 1
-adjusted P value <= 0.001
+Benjamini-Hochberg adjusted P value <= 0.05
 ```
 
 若输入逐组织差异表达结果，iDGRM直接读取其效应值和显著性。若输入带生物学重复的表达矩阵，软件构建组织级证据；正式研究仍建议使用适用于整数计数的差异表达工具。
