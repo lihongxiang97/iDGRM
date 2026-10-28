@@ -1,16 +1,29 @@
 # iDGRM 1.0.0
 
-重复基因跨组织表达模式分类工具，包含两个独立模块：基础四分类与可选外群表达极化。Python ≥3.10；counts 拟合另需 R/DESeq2。
+iDGRM classifies duplicate-gene expression patterns across tissues. It provides two independent modules: primary four-class classification and optional outgroup-reference expression polarization.
 
-## 功能边界
+## Scope
 
-基础四类：**Unmappable、No difference、Asymmetrically expressed、Sub-/neofunctionalized**。
+The primary module assigns four classes: **Unmappable**, **No difference**, **Asymmetrically expressed**, and **Sub-/neofunctionalized**.
 
-可选模块只进一步分析最后一类，输出 **OUTGROUP_SUPPORTED_SUB_CANDIDATE、OUTGROUP_SUPPORTED_NEO_CANDIDATE、UNRESOLVED**；其他基础类别标为 NOT_ELIGIBLE。候选结果独立保存，不修改基础分类。无外群不做纯表达 SUB/NEO 猜测，不输出正确概率，不声称重建真实祖先或证明生化功能变化。
+The optional module analyzes only primary Sub-/neofunctionalized pairs and reports `OUTGROUP_SUPPORTED_SUB_CANDIDATE`, `OUTGROUP_SUPPORTED_NEO_CANDIDATE`, or `UNRESOLVED`. Other primary classes are marked `NOT_ELIGIBLE`. These outputs do not modify primary assignments. The module does not infer separate SUB/NEO labels without an outgroup, report probabilities of correctness, reconstruct a true ancestor, or establish changes in biochemical function.
 
-四分类参考 Lan & Pritchard (2016)，但默认采用 **BH-adjusted P ≤0.05、|log2FC| ≥1**。这是公开说明的统计调整，不是原论文配对 t 检验 / P <0.001 的原样复现。逐组织 BH 不能解释为最终类别的 FDR 保证。
+The four-class framework follows Lan and Pritchard (2016), with explicitly documented statistical adaptations. Defaults are **BH-adjusted P ≤ 0.05** and **absolute log2FC ≥ 1**, rather than the publication's paired t-test with P < 0.001. Within-tissue BH adjustment does not guarantee false discovery rate control for the final expression classes.
 
-## 安装与检查
+## Dependencies and installation
+
+Python **3.10 or later** is required. The Python package depends on NumPy, pandas, and SciPy.
+
+**The raw-count workflow requires R and DESeq2.** Installing iDGRM with pip does not install R or DESeq2; install these separately and make `Rscript` available on your PATH, or provide its location with `--rscript`.
+
+| Command or input route | R/DESeq2 required locally? |
+|---|---|
+| `fit-copy-counts`: differential testing of raw integer counts | **Yes**; calls the actual R/DESeq2 engine |
+| `classify-primary --differential-expression-dir`: import completed differential tests | No; compatible test results must already exist |
+| `classify-primary --expression-matrix`: log-expression paired t-test | No; this is a distinct statistical route, not a Python implementation of DESeq2 |
+| `polarize-outgroup`: optional outgroup-reference analysis | No; uses existing primary results and expression evidence |
+
+Download the wheel or source archive from the [1.0.0 release](https://github.com/lihongxiang97/iDGRM/releases/tag/v1.0.0). From an extracted source directory:
 
 ```bash
 python -m pip install .
@@ -19,9 +32,9 @@ idgrm --help
 python -m unittest discover -s tests -v
 ```
 
-## 模块一：基础四分类
+## Module 1: primary four-class classification
 
-先从可比对区域的原始整数 counts 做差异检验（可使用其他软件产生的兼容结果）：
+Fit differential expression using raw integer counts from comparable, reliably assignable regions. Alternatively, import compatible differential-expression results generated beforehand.
 
 ```bash
 idgrm fit-copy-counts \
@@ -39,11 +52,11 @@ idgrm classify-primary \
   --duplicate-pairs pairs.tsv --output-dir results/primary
 ```
 
-counts 矩阵首列为基因 ID；两张 copy 矩阵首列为 pair_id，其他列为 sample_id，顺序必须与 samples.tsv 一致。样本表包含 sample_id、tissue、replicate；pair 表包含 pair_id、gene1、gene2。每组织至少两份独立生物学文库，建议三份或以上；技术重复应先合并。TPM 仅用于活性判断与展示，不进入 DESeq2 模型。
+The first column of the whole-gene count matrix contains gene IDs. The first column of each copy-specific matrix contains `pair_id`; the remaining columns contain sample counts in the same order as `samples.tsv`. Sample metadata must include `sample_id`, `tissue`, and `replicate`; the pair table must include `pair_id`, `gene1`, and `gene2`. Each tissue requires at least two independent biological libraries; three or more are recommended. Merge technical replicates before analysis. TPM is used for activity assessment and visualization, not as input to the DESeq2 model.
 
-`--observability-method` 为用户提供的计数来源声明，不会自动执行 read-swap 或验证可比对性。两 copy 必须具备可比的有效长度/可观测区域，不能仅保证单侧唯一比对就认为已经消除长度和归属偏倚。`uncorrected` 只供诊断，不建议用于正式生物学解释。
+`--observability-method` records a user-supplied description of count provenance. It does not perform read swapping or verify mappability. The two copies must have comparable effective lengths or observable regions; uniquely mapping reads from one copy alone do not eliminate length and assignment biases. The `uncorrected` setting is intended for diagnostics and is not recommended for biological interpretation.
 
-也可使用独立的 log-expression 配对 t 检验路径；它不是 DESeq2 的替代实现：
+An independent log-expression paired t-test route is also available. It is not a reimplementation of DESeq2:
 
 ```bash
 idgrm classify-primary --expression-matrix examples/expression.tsv \
@@ -51,9 +64,9 @@ idgrm classify-primary --expression-matrix examples/expression.tsv \
   --output-dir results/example_primary
 ```
 
-输出 primary_classifications.tsv、tissue_evidence.tsv、primary_summary.tsv、primary_run_metadata.json。保留机器代码 UNMAPPED 兼容既有结果，其显示名称为 Unmappable，但证据不足不等于证明不可比对，详见方法说明。
+Outputs are `primary_classifications.tsv`, `tissue_evidence.tsv`, `primary_summary.tsv`, and `primary_run_metadata.json`. The machine-readable code `UNMAPPED` is retained for compatibility and displayed as Unmappable. This category also includes insufficient expression evidence: it does not, by itself, establish that a pair is genuinely unmappable. Consult `assessment_status`, `mapping_status`, and the classification reason. No difference means that the specified directional rules were not met, not that the copies have identical functions.
 
-## 模块二：外群表达极化
+## Module 2: optional outgroup-reference expression polarization
 
 ```bash
 idgrm polarize-outgroup \
@@ -66,22 +79,34 @@ idgrm polarize-outgroup \
   --orthology-source "Synthetic fixture" --output-dir results/example_polarization
 ```
 
-示例仅验证程序行为，不是性能基准或真实生物学结论。兼容性历史名称 ancestor_expression.tsv 实际表示外群，不是祖先重建。
+These synthetic examples verify program behavior; they are not accuracy benchmarks or biological findings. The historical filename `ancestor_expression.tsv` refers to an extant outgroup, not a reconstructed ancestor.
 
-用户选择外群并提供正交关系、组织映射及检测条件声明。该模块不会自动认证这些生物学判断。请先阅读 [外群选择与输入规范](docs/OUTGROUP_GUIDE_CN.md)。默认只接受明确对应组织，近似对应须显式启用 `--allow-approximate-tissues`。
+Users select the outgroup and supply orthology assignments, tissue correspondences, and detection-adequacy declarations. The module does not automatically validate these biological judgments. Select an outgroup with an appropriate phylogenetic position relative to the duplication event and a reliably identified single-copy ortholog; the closest species is not necessarily the most suitable reference. Match tissue identity, developmental stage, and experimental conditions where possible.
 
-## 方法、版本与追溯
+Required mapping tables are illustrated in `examples/`:
 
-- [当前方法与原文差异](docs/METHODOLOGY_CN.md)
-- [外群指南](docs/OUTGROUP_GUIDE_CN.md)
-- [1.0.0 变更与发布验收](docs/RELEASE_1.0.0_CN.md)
+| File | Required columns | Accepted declarations |
+|---|---|---|
+| `orthologs.tsv` | `pair_id`, `outgroup_gene_id`, `relationship` | `single_copy` or `ambiguous` |
+| `tissue_map.tsv` | `target_tissue`, `outgroup_tissue`, `match_quality` | `exact` or `approximate` |
+| `detection_qc.tsv` | `outgroup_gene_id`, `outgroup_tissue`, `assessment` | `adequate` or `inadequate` |
 
-输出带参数与输入 SHA-256；基础输出带完整性哈希供极化模块核对。重复运行不得覆盖同名结果文件。历史细分代码只为旧研究回归保留在内部模块，不是受支持接口；新的公开入口是 polarize-outgroup。旧结果不自动重标。
+Tissue correspondence must be one-to-one. Approximate matches require explicit opt-in with `--allow-approximate-tissues`. Missing genes, missing tissues, failed quantification, and insufficient detection evidence must not be encoded as absence of expression.
 
-本版“稳定”指受支持接口、规则执行、异常处理与可重复性，不表示所有条件下都有已验证的生物学准确率或错误率。小样本、高离散度、组织覆盖不足和相似 copy 的归属偏倚仍需谨慎。
+Defaults distinguish ON (TPM ≥ 1), OFF (all measured replicates ≤ 0.1 TPM), and UNKNOWN states. At least two valid replicates, two informative matched tissues, and a 50% informative fraction among included tissue mappings are required. The retention threshold is 0.8. These are configurable operational thresholds, not calibrated biological constants. See the [detailed outgroup guide (Chinese)](docs/OUTGROUP_GUIDE_CN.md) for the full input and interpretation requirements.
 
-## 引用
+## Methods, limitations, and reproducibility
 
-Lan X, Pritchard JK. Coregulation of tandem duplicate genes slows evolution of subfunctionalization in mammals. Science 352, 1009–1013 (2016). DOI: [10.1126/science.aad8411](https://doi.org/10.1126/science.aad8411)。
+- [Methods and differences from the reference publication (Chinese)](docs/METHODOLOGY_CN.md)
+- [Outgroup selection and input guide (Chinese)](docs/OUTGROUP_GUIDE_CN.md)
+- [1.0.0 release notes and verification scope (Chinese)](docs/RELEASE_1.0.0_CN.md)
 
-DESeq2 方法参考其[官方说明](https://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html)。使用本工具不能替代对输入实验设计与假设的检查。
+Run metadata records parameters and input SHA-256 checksums. Primary outputs include integrity hashes checked by the polarization module. Existing output files are not silently overwritten. Historical refinement code is retained internally for regression checks and is not a supported public interface; use `polarize-outgroup`. Historical results are not automatically relabeled.
+
+In this release, stability refers to supported interfaces, rule execution, error handling, and reproducibility. It does not imply established biological accuracy or error control under every experimental condition. Small sample sizes, high dispersion, limited tissue coverage, and assignment bias between similar copies remain important limitations. Outgroup-supported candidates are expression-based interpretations, not direct proof of subfunctionalization or neofunctionalization.
+
+## References
+
+Lan X, Pritchard JK. Coregulation of tandem duplicate genes slows evolution of subfunctionalization in mammals. Science 352, 1009–1013 (2016). DOI: [10.1126/science.aad8411](https://doi.org/10.1126/science.aad8411).
+
+For DESeq2 methods and installation guidance, see the [official DESeq2 documentation](https://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html). Using iDGRM does not replace assessment of experimental design, data quality, and statistical assumptions.
