@@ -1,60 +1,54 @@
-# iDGRM 方法说明
+# iDGRM 1.0.0 方法及适用范围
 
-## 1. 方法依据
+## 基础分类与原文关系
 
-初级分类规则依据 Lan 与 Pritchard（2016，Science 352:1009–1013，DOI: 10.1126/science.aad8411）描述的重复基因跨组织表达模式。期刊名称只用于文献溯源，不用于软件命令、参数、字段或文件名。
+参考 Lan & Pritchard (2016), DOI 10.1126/science.aad8411。保留四类表达模式框架，不把候选模式表述为已证实的生物学命运。
 
-## 2. 严格定量要求
+| 环节 | 参考论文正文 | iDGRM 1.0.0 |
+|---|---|---|
+| 差异检验 | 配对 t 检验 | 推荐整数 counts 的配对 DESeq2；另保留 log-expression 配对 t 检验 |
+| 显著性 | P <0.001 | 默认逐组织 BH-adjusted P ≤0.05，可配置 |
+| 效应值 | 至少两倍差异 | 绝对 log2FC ≥1 |
+| SUB/NEO | 两 copy 各至少一个组织显著占优 | 相同方向反转框架，保持合并 |
+| AED | 主要 copy 在至少三分之一任一 copy 表达的组织占优，无显著反向 | 可评价活跃组织中至少 ceil(N/3) 同向占优，无显著反向 |
+| 不可评价 | 不可比对重复对 | 保留兼容代码 UNMAPPED，但另给 assessment_status、mapping_status 和原因，明确包含表达证据不足 |
 
-高度相似的重复基因容易发生read错误归属。正式分析应仅计入能够完全匹配且可唯一归属一个copy的reads，并保存比对规则、参考基因组版本、注释版本和计数方法。整数read counts应使用count-based差异表达模型；TPM只用于表达展示及表达状态辅助判定。
+这些调整具有明确统计和数据处理目的，但不是原文严格复现。修改显著性参数不能使所有其他步骤自动等同于原文。
 
-## 3. 组织级表达证据
+## counts 模型
 
-每个组织记录两个copy的表达量、表达状态、log2 fold change、P值、校正后P值和显著方向。默认显著方向要求：
+每组织分别拟合 `~biological_library + copy`。同一文库的两个 copy 共享由全基因 counts 的 poscounts 方法估计的 size factor。默认 Wald，也支持 LRT（约简模型 `~biological_library`）；总 counts <10 不检验，禁用独立过滤和自动 outlier replacement，保留 NA。R sessionInfo 记录真实运行版本。批次、处理或时间点不能不加区别地当作同一组织的生物学重复。
 
-```text
-absolute log2 fold change >= 1
-Benjamini-Hochberg adjusted P value <= 0.05
-```
+DESeq2 负二项模型及 BH 校正可以用于此适配分析，但其合理性依赖归属、有效长度、文库归一化和模型拟合假设。相互重叠的基因对及小样本高变异可能影响统计性质；不保证任何数据集都控制在 5%，更不保证最终类别的 FDR。BH 检验 H0: log2FC=0 后叠加效应筛选，不等同于直接检验 |log2FC|>1。
 
-若输入逐组织差异表达结果，iDGRM直接读取其效应值和显著性。若输入带生物学重复的表达矩阵，软件构建组织级证据；正式研究仍建议使用适用于整数计数的差异表达工具。
+完全匹配且唯一归属是必要的输入质量要求之一，不自动保证两个 copy 的可观测区域对等。应使用共同同源且两侧可可靠归属的位置，或有依据的有效长度处理；软件声明字段不能替代实际定量处理。
 
-## 4. 初级表达模式分类
+## 可评价性及分类顺序
 
-初级分类为四个互斥类别：
+默认 TPM 中位数 ≥1 且至少一半重复达到阈值，判为表达活跃。任一 copy 活跃、效应有限、所选 P/q 为有效概率的组织才进入可评价分母。默认至少两个可评价组织。缺失 P/q 不填为 1，不因有原始 P 就替换已提供但缺失的 padj。
 
-1. `UNMAPPED`：缺乏足够的可唯一归属表达证据，无法可靠分类；
-2. `NO_DIFFERENCE`：未达到方向性表达差异规则；
-3. `ASYMMETRICALLY_EXPRESSED`：同一copy在至少 `ceil(n_evaluable × asymmetry_tissue_fraction)` 个组织中显著占优，且不存在显著反向；
-4. `SUB_OR_NEOFUNCTIONALIZED`：gene1-high和gene2-high各至少出现一次。
+1. 证据不足：UNMAPPED；这是兼容性桶，不证明真实不可比对。mapping_status 明确标为 NOT_INFERRED_FROM_EXPRESSION。
+2. 两方向各至少一次显著占优：SUB_OR_NEOFUNCTIONALIZED。
+3. 一个方向在至少 ceil(N × asymmetry_tissue_fraction) 个组织占优且没有反向：ASYMMETRICALLY_EXPRESSED。
+4. 其余：NO_DIFFERENCE。它表示未达到以上规则，不是证明表达完全相等或功能相同。
 
-初级分类不包含任何iDGRM新增的一级命运类别。
+输出 active_tissue_test_coverage，提示有表达组织中多少能完成检验；低覆盖需谨慎，不能把缺少检验当作没有反向差异。
 
-## 5. 亚型细分
+## 外群模块
 
-亚型细分读取 `primary_classifications.tsv` 和 `tissue_evidence.tsv`，只处理两个方向性类别，并保留 `parent_primary_class`。
+是独立的、确定性表达状态极化规则，不是分类模型训练，也不是系统发育祖先重建。仅处理基础 SUB/NEO，不保证发现所有可能的新功能化，尤其不处理没有方向反转的潜在获得事件。
 
-### 5.1 非对称表达亚型
+默认 ON ≥1 TPM；OFF 要求所有有效重复 ≤0.1 TPM；中间区间 UNKNOWN。至少两个有效重复及两个状态完整的匹配组织。目标 OFF 使用导出的 max1/max2，而非只凭中位数；旧文件缺少最大值时不据此认定 OFF。外群必须有 adequate 的基因—组织检测条件声明，否则包括非零值也不参与状态极化。样本缺失不填零。
 
-- `CONSISTENT_ASYMMETRIC_EXPRESSION`：一个copy呈稳定方向性优势，但伙伴copy不满足广泛表达沉默标准；
-- `EXPRESSION_SILENCING_ASSOCIATED_ASYMMETRY`：一个copy在至少 `silencing_tissue_fraction` 的可评价组织中低于表达阈值，而伙伴copy处于表达状态，并且沉默copy从未显著占优。
+SUB 候选：外群 ON 的组织中两个 copy 分别有显著占优的互补保留（另一个 copy OFF），合并覆盖至少 80% 已知外群 ON 组织，且没有受支持的单 copy 获得。
 
-后者描述表达模式，不证明基因功能丢失、假基因化或非功能化。
+NEO 候选：外群 OFF、目标只有一个 copy ON 且该 copy 显著占优；另一个 copy 保留至少 80% 已知外群 ON 组织。需至少一个外群 ON 组织。两 copy 同时新增、同时有互补与获得、或证据无法唯一解释时，不强行分型。
 
-### 5.2 亚功能化与新功能化亚型
+这些是版本化的操作阈值，不是已优化的生物学常数，也不是候选显著性检验。覆盖比例仅针对状态完整的匹配组织；不代表全组织或全生命史覆盖。输出匹配数、有效数、保留与获得指标，供用户判断缺失程度。不同物种不直接比较 TPM 倍数，避免把跨物种尺度差异当作获得。
 
-有外群单拷贝正交基因表达时：
+## 科学依据
 
-- `SUBFUNCTIONALIZATION`：两个copy在不同祖先表达组织中分别占优，二者表达并集覆盖规定比例的祖先表达域，且没有可靠的新表达域增益；
-- `NEOFUNCTIONALIZATION`：一个copy在祖先未表达组织获得显著表达域，而另一个copy保留足够的祖先表达域；
-- `UNRESOLVED_SUB_OR_NEOFUNCTIONALIZATION`：现有证据不能唯一支持上述任一机制。
+- 原论文：https://pmc.ncbi.nlm.nih.gov/articles/PMC5182070/
+- DESeq2 官方手册（配对设计、NA、size factors、P 校正）：https://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html
 
-没有外群表达时，软件依据表达广度、组织互补性、方向平衡和表达相关性进行未极化推断，并将 `evidence_basis` 记录为 `TARGET_SPECIES_EXPRESSION_ONLY`。此时的新功能化判断不是祖先状态支持的最终结论。
-
-## 6. 输出追溯性
-
-初级分类和亚型细分分别保存输入文件SHA-256、参数、软件版本、警告及生成时间。亚型结果中的每一行都保留初级分类，因此不会因扩展分析改变参考分类结果。
-
-## 7. 解释限制
-
-新功能化的可靠证明需要结合外群表达、编码序列选择、蛋白结构或结构域变化、互作网络、表型和功能实验。表达沉默也需要结合更多组织、发育阶段、环境处理、基因组注释和可唯一比对长度进行验证。
+本工具借鉴原文框架并公开统计适配，不声称新建生物学真值。工程验收与生物学验证分开报告。

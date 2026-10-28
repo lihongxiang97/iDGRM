@@ -29,6 +29,8 @@ def load_differential_expression_results(
     config: IDGRMConfig,
     pattern: str = "*.DESeq2.csv",
     filename_regex: str = DEFAULT_DIFFERENTIAL_EXPRESSION_FILENAME_REGEX,
+    activity_expression: pd.DataFrame | None = None,
+    activity_samples: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Convert tissue-specific DESeq2 tables to a normalized evidence table."""
 
@@ -37,6 +39,32 @@ def load_differential_expression_results(
     if not files:
         raise FileNotFoundError(f"No differential-expression files matched {directory / pattern}")
     matcher = re.compile(filename_regex)
+    config.validate()
+
+    if activity_expression is None or activity_samples is None:
+        raise ValueError(
+            "Precomputed differential-expression results require a measured expression matrix "
+            "and sample metadata for copy-activity calls; DESeq2 baseMean is not TPM"
+        )
+    tissue_activity: dict[str, pd.DataFrame] = {}
+    genes = set(pairs["gene1"]) | set(pairs["gene2"])
+    missing_genes = genes - set(activity_expression.index)
+    if missing_genes:
+        raise ValueError(f"Activity expression matrix lacks {len(missing_genes)} duplicate genes")
+    for tissue, subset in activity_samples.groupby("tissue", sort=False):
+        sample_ids = subset["sample_id"].tolist()
+        values = activity_expression[sample_ids]
+        median = values.median(axis=1)
+        fraction = values.ge(config.min_expression).mean(axis=1)
+        tissue_activity[str(tissue)] = pd.DataFrame({
+            "mean": values.mean(axis=1),
+            "median": median,
+            "max": values.max(axis=1),
+            "active_fraction": fraction,
+            "active": median.ge(config.min_expression)
+            & fraction.ge(config.min_active_fraction),
+            "n_replicates": values.notna().sum(axis=1),
+        })
 
     key_map: dict[str, tuple[object, bool]] = {}
     for pair in pairs.itertuples(index=False):
@@ -54,12 +82,15 @@ def load_differential_expression_results(
 
     records: list[dict[str, object]] = []
     warnings: list[str] = []
+    tissues_without_adjusted_p: set[str] = set()
     for path in files:
         match = matcher.match(path.name)
         if not match or "tissue" not in match.groupdict():
             warnings.append(f"Skipped {path.name}: filename regex did not yield a tissue")
             continue
         tissue = match.group("tissue")
+        if tissue_activity and tissue not in tissue_activity:
+            raise ValueError(f"No activity-expression samples found for DE tissue {tissue!r}")
         frame = pd.read_csv(path)
         if frame.empty:
             warnings.append(f"Skipped empty file: {path.name}")
@@ -67,7 +98,8 @@ def load_differential_expression_results(
         lfc_column = _column_by_name(frame, {"log2FoldChange", "log2fc", "lfc"})
         p_column = _column_by_name(frame, {"pvalue", "p_value", "p"})
         q_column = _column_by_name(frame, {"padj", "qvalue", "fdr"})
-        base_column = _column_by_name(frame, {"baseMean", "basemean", "mean"})
+        if q_column is None:
+            tissues_without_adjusted_p.add(tissue)
         if lfc_column is None:
             raise ValueError(f"{path.name} has no log2FoldChange column")
         id_column = str(frame.columns[0])
@@ -99,19 +131,17 @@ def load_differential_expression_results(
                 if q_column
                 else float("nan")
             )
-            base_mean = (
-                pd.to_numeric(pd.Series([values[base_column]]), errors="coerce").iloc[0]
-                if base_column
-                else float("nan")
-            )
-            if np.isfinite(base_mean) and np.isfinite(lfc):
-                ratio = 2.0 ** float(lfc)
-                mean1 = 2.0 * float(base_mean) / (1.0 + ratio)
-                mean2 = mean1 * ratio
-            else:
-                mean1 = mean2 = float("nan")
-            active1 = bool(np.isfinite(mean1) and mean1 >= config.min_expression)
-            active2 = bool(np.isfinite(mean2) and mean2 >= config.min_expression)
+            activity = tissue_activity[tissue]
+            gene1, gene2 = str(pair.gene1), str(pair.gene2)
+            mean1 = float(activity.at[gene1, "mean"])
+            mean2 = float(activity.at[gene2, "mean"])
+            median1 = float(activity.at[gene1, "median"])
+            median2 = float(activity.at[gene2, "median"])
+            active_fraction1 = float(activity.at[gene1, "active_fraction"])
+            active_fraction2 = float(activity.at[gene2, "active_fraction"])
+            active1 = bool(activity.at[gene1, "active"])
+            active2 = bool(activity.at[gene2, "active"])
+            n_replicates = int(min(activity.at[gene1, "n_replicates"], activity.at[gene2, "n_replicates"]))
             records.append(
                 {
                     "pair_id": pair.pair_id,
@@ -120,28 +150,37 @@ def load_differential_expression_results(
                     "tissue": tissue,
                     "mean1": mean1,
                     "mean2": mean2,
-                    "median1": mean1,
-                    "median2": mean2,
+                    "median1": median1,
+                    "median2": median2,
+                    "max1": float(activity.at[gene1, "max"]),
+                    "max2": float(activity.at[gene2, "max"]),
                     "active1": active1,
                     "active2": active2,
-                    "active_fraction1": float(active1),
-                    "active_fraction2": float(active2),
-                    "n_replicates": float("nan"),
+                    "active_fraction1": active_fraction1,
+                    "active_fraction2": active_fraction2,
+                    "n_replicates": n_replicates,
                     "log2fc_gene2_over_gene1": lfc,
                     "pvalue": float(pvalue) if np.isfinite(pvalue) else float("nan"),
                     "qvalue": float(qvalue) if np.isfinite(qvalue) else float("nan"),
-                    "method": "precomputed_differential_expression",
+                    "method": "precomputed_differential_expression_with_tpm_activity",
                 }
             )
 
     if not records:
         raise ValueError("Legacy files produced no matched evidence rows")
     evidence = pd.DataFrame.from_records(records)
-    for _, indices in evidence.groupby("tissue", sort=False).groups.items():
-        missing_q = evidence.loc[indices, "qvalue"].isna()
-        if missing_q.any():
+    if evidence.duplicated(["pair_id", "tissue"]).any():
+        raise ValueError("Duplicate pair/tissue evidence; merge biological libraries before differential testing")
+    for column in ("pvalue", "qvalue"):
+        values = evidence[column].dropna()
+        if not values.between(0, 1).all():
+            raise ValueError(f"{column} must contain probabilities between zero and one")
+    # Insufficient measured biological replication must never become a callable test.
+    evidence.loc[evidence.n_replicates < config.min_replicates, ["pvalue", "qvalue"]] = np.nan
+    for tissue, indices in evidence.groupby("tissue", sort=False).groups.items():
+        if tissue in tissues_without_adjusted_p:
             adjusted = benjamini_hochberg(evidence.loc[indices, "pvalue"])
-            evidence.loc[indices, "qvalue"] = evidence.loc[indices, "qvalue"].fillna(adjusted)
+            evidence.loc[indices, "qvalue"] = adjusted
     test_values = evidence["qvalue"] if config.p_adjust == "bh" else evidence["pvalue"]
     active_union = evidence["active1"] | evidence["active2"]
     evidence["significant"] = (

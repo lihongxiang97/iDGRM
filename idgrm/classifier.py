@@ -26,6 +26,19 @@ PRIMARY_LABELS_CN = {
 }
 
 
+def _eligible_rows(rows: pd.DataFrame, config: IDGRMConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Use one eligibility definition in primary classification and refinement."""
+    active = rows["active1"].fillna(False).astype(bool) | rows["active2"].fillna(False).astype(bool)
+    effect = pd.to_numeric(rows.get("log2fc_gene2_over_gene1", pd.Series(index=rows.index, dtype=float)),
+                           errors="coerce")
+    active_rows = rows.loc[active & np.isfinite(effect)].copy()
+    column = "qvalue" if config.p_adjust == "bh" else "pvalue"
+    probabilities = pd.to_numeric(active_rows[column], errors="coerce")
+    valid_statistic = np.isfinite(probabilities) & probabilities.between(0, 1)
+    effect_only = active_rows["method"].astype(str).eq("effect_only")
+    return active_rows, active_rows.loc[effect_only | valid_statistic].copy()
+
+
 def _safe_ratio(numerator: float, denominator: float, default: float = 0.0) -> float:
     return float(numerator / denominator) if denominator else float(default)
 
@@ -275,6 +288,8 @@ def classify_primary_pairs(
     """Classify duplicate pairs into the four primary expression-pattern classes."""
 
     config.validate()
+    if evidence.duplicated(["pair_id", "tissue"]).any():
+        raise ValueError("Duplicate pair/tissue evidence is not permitted")
     grouped = {pair_id: group.copy() for pair_id, group in evidence.groupby("pair_id")}
     records: list[dict[str, object]] = []
 
@@ -287,24 +302,7 @@ def classify_primary_pairs(
                     "pvalue", "qvalue", "method",
                 ]
             )
-        active_union = rows.get("active1", pd.Series(dtype=bool)).fillna(False).astype(bool) | rows.get(
-            "active2", pd.Series(dtype=bool)
-        ).fillna(False).astype(bool)
-        evaluable = active_union & pd.to_numeric(
-            rows.get("log2fc_gene2_over_gene1", pd.Series(index=rows.index, dtype=float)),
-            errors="coerce",
-        ).notna()
-        active_rows = rows.loc[evaluable].copy()
-        methods = active_rows.get("method", pd.Series(index=active_rows.index, dtype=str)).astype(str)
-        has_stat = pd.to_numeric(
-            active_rows.get("qvalue", pd.Series(index=active_rows.index, dtype=float)),
-            errors="coerce",
-        ).notna() | pd.to_numeric(
-            active_rows.get("pvalue", pd.Series(index=active_rows.index, dtype=float)),
-            errors="coerce",
-        ).notna()
-        callable_mask = methods.eq("effect_only") | has_stat
-        analysis_rows = active_rows.loc[callable_mask].copy()
+        active_rows, analysis_rows = _eligible_rows(rows, config)
         n_active = int(len(active_rows))
         n_evaluable = int(len(analysis_rows))
         n_callable = n_evaluable
@@ -378,6 +376,14 @@ def classify_primary_pairs(
             "ancestor_id": pair.ancestor_id,
             "primary_class": primary_class,
             "primary_class_cn": PRIMARY_LABELS_CN[primary_class],
+            "primary_class_display": {
+                "UNMAPPED": "Unmappable", "NO_DIFFERENCE": "No difference",
+                "ASYMMETRICALLY_EXPRESSED": "Asymmetrically expressed",
+                "SUB_OR_NEOFUNCTIONALIZED": "Sub-/neofunctionalized",
+            }[primary_class],
+            "assessment_status": "INSUFFICIENT_EXPRESSION_EVIDENCE" if primary_class == "UNMAPPED" else "ASSESSED",
+            "mapping_status": "NOT_INFERRED_FROM_EXPRESSION",
+            "active_tissue_test_coverage": _safe_ratio(n_evaluable, n_active),
             "major_copy": major,
             "minor_copy": minor,
             "n_evaluable_tissues": n_evaluable,
@@ -432,13 +438,7 @@ def refine_primary_candidates(
         rows = evidence_groups.get(source.pair_id)
         if pair is None or rows is None:
             raise ValueError(f"Pair {source.pair_id!r} lacks pair metadata or tissue evidence")
-        active_union = rows["active1"].fillna(False).astype(bool) | rows["active2"].fillna(False).astype(bool)
-        finite_effect = pd.to_numeric(rows["log2fc_gene2_over_gene1"], errors="coerce").notna()
-        methods = rows["method"].astype(str)
-        has_stat = pd.to_numeric(rows["qvalue"], errors="coerce").notna() | pd.to_numeric(
-            rows["pvalue"], errors="coerce"
-        ).notna()
-        analysis_rows = rows.loc[active_union & finite_effect & (methods.eq("effect_only") | has_stat)].copy()
+        _, analysis_rows = _eligible_rows(rows, config)
 
         parent = str(source.primary_class)
         innovating_copy = ""
@@ -500,7 +500,8 @@ def refine_primary_candidates(
             "silenced_copy": silenced_copy,
             "innovating_copy": innovating_copy,
             "evidence_basis": evidence_basis,
-            "confidence": round(float(confidence), 3),
+            "rule_support_score": round(float(confidence), 3),
+            "score_interpretation": "UNCALIBRATED_RULE_SCORE_NOT_PROBABILITY",
             "refinement_reason": reason,
         })
         records.append(record)

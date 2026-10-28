@@ -1,15 +1,16 @@
-"""iDGRM: inference of duplicated-gene retention mechanisms."""
+"""iDGRM: four-class duplicate-gene expression-pattern classification."""
 
 from .config import IDGRMConfig
+from ._version import __version__
 from .pipeline import (
     AnalysisResult,
     run_primary_classification,
     run_primary_classification_from_differential_expression,
-    run_subtype_refinement,
 )
+from .polarization import PolarizationConfig, run_outgroup_polarization
 
 __all__ = [
     "IDGRMConfig", "AnalysisResult", "run_primary_classification",
-    "run_primary_classification_from_differential_expression", "run_subtype_refinement",
+    "run_primary_classification_from_differential_expression",
+    "PolarizationConfig", "run_outgroup_polarization",
 ]
-__version__ = "0.3.0"

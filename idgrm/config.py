@@ -79,10 +79,12 @@ class IDGRMConfig:
 
         if self.p_adjust not in {"bh", "none"}:
             raise ValueError("p_adjust must be 'bh' or 'none'")
-        if self.min_replicates < 2:
+        if isinstance(self.min_replicates, bool) or not isinstance(self.min_replicates, int) or self.min_replicates < 2:
             raise ValueError("min_replicates must be at least 2")
-        if self.min_evaluable_tissues < 1:
+        if isinstance(self.min_evaluable_tissues, bool) or not isinstance(self.min_evaluable_tissues, int) or self.min_evaluable_tissues < 1:
             raise ValueError("min_evaluable_tissues must be at least 1")
+        if self.asymmetry_tissue_fraction == 0 or self.min_active_fraction == 0:
+            raise ValueError("Activity and asymmetry fractions must be > 0")
         return self
 
     @property

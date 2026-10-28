@@ -1,0 +1,5 @@
+target_tissue	outgroup_tissue	match_quality
+root	root	exact
+leaf	leaf	exact
+flower	flower	exact
+seed	seed	exact

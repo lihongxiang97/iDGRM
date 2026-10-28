@@ -16,6 +16,8 @@ def benjamini_hochberg(pvalues: pd.Series) -> pd.Series:
     values = pd.to_numeric(pvalues, errors="coerce").to_numpy(dtype=float)
     result = np.full(values.shape, np.nan, dtype=float)
     valid = np.isfinite(values)
+    if np.isinf(values).any() or ((values[valid] < 0) | (values[valid] > 1)).any():
+        raise ValueError("P values must be missing or finite probabilities between 0 and 1")
     if not valid.any():
         return pd.Series(result, index=pvalues.index, dtype=float)
     valid_values = values[valid]
@@ -137,6 +139,8 @@ def compute_tissue_evidence(
                     "mean2": mean2,
                     "median1": median1,
                     "median2": median2,
+                    "max1": float(np.nanmax(values1)) if np.isfinite(values1).any() else float("nan"),
+                    "max2": float(np.nanmax(values2)) if np.isfinite(values2).any() else float("nan"),
                     "active1": active1,
                     "active2": active2,
                     "active_fraction1": active_fraction1,
