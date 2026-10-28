@@ -42,7 +42,7 @@ def main():
         if error.code != 404:
             raise
         release = request(base + "/releases", "POST", dict(tag_name=tag, name=f"iDGRM {version}",
-            body=(root / f"docs/RELEASE_{version}_CN.md").read_text(encoding="utf-8"),
+            body=(root / f"docs/RELEASE_{version}.md").read_text(encoding="utf-8"),
             draft=True, prerelease=False))
     if not release["draft"]:
         raise ValueError("Release is already published; refusing to overwrite")

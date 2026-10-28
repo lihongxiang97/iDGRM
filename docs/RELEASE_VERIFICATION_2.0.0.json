@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "date": "2026-10-28",
+  "scope": "Software regression and integration, not biological accuracy",
+  "core_tests": {"windows": 39, "linux": 39, "status": "PASS"},
+  "linux_count_integration": {"commands": 6, "engines": ["R/DESeq2 Wald", "R/DESeq2 LRT"], "data": "synthetic", "status": "PASS"},
+  "saved_real_evidence_replay": [
+    {"dataset": "pear_hapA", "pairs": 30512, "changed_primary_labels": 0},
+    {"dataset": "arabidopsis", "pairs": 14478, "changed_primary_labels": 0},
+    {"dataset": "pear_hapB", "pairs": 31743, "changed_primary_labels": 0}
+  ],
+  "replay_note": "HapA and hapB share the pear RNA-seq libraries. Replays reuse saved tissue tests; they do not rerun FASTQ alignment or the entire real-data DESeq2 analysis.",
+  "figure_qa": {"backend": "Python/Matplotlib", "text_collisions": 0, "outside_canvas_text": 0, "editable_svg_text": true}
+}

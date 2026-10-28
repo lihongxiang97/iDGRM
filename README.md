@@ -1,12 +1,14 @@
-# iDGRM 1.0.0
+# iDGRM 2.0.0
 
-iDGRM classifies duplicate-gene expression patterns across tissues. It provides two independent modules: primary four-class classification and optional outgroup-reference expression polarization.
+iDGRM classifies duplicate-gene expression patterns across tissues. It assigns four expression-pattern classes from tissue-level differential-expression evidence and measured expression activity.
+
+![iDGRM workflow and four-class decision rules](docs/figures/Fig1_iDGRM_design.svg)
 
 ## Scope
 
 The primary module assigns four classes: **Unmappable**, **No difference**, **Asymmetrically expressed**, and **Sub-/neofunctionalized**.
 
-The optional module analyzes only primary Sub-/neofunctionalized pairs and reports `OUTGROUP_SUPPORTED_SUB_CANDIDATE`, `OUTGROUP_SUPPORTED_NEO_CANDIDATE`, or `UNRESOLVED`. Other primary classes are marked `NOT_ELIGIBLE`. These outputs do not modify primary assignments. The module does not infer separate SUB/NEO labels without an outgroup, report probabilities of correctness, reconstruct a true ancestor, or establish changes in biochemical function.
+Subfunctionalization and neofunctionalization remain combined as **Sub-/neofunctionalized**. This software reports expression patterns rather than demonstrated functional changes.
 
 The four-class framework follows Lan and Pritchard (2016), with explicitly documented statistical adaptations. Defaults are **BH-adjusted P ≤ 0.05** and **absolute log2FC ≥ 1**, rather than the publication's paired t-test with P < 0.001. Within-tissue BH adjustment does not guarantee false discovery rate control for the final expression classes.
 
@@ -21,9 +23,8 @@ Python **3.10 or later** is required. The Python package depends on NumPy, panda
 | `fit-copy-counts`: differential testing of raw integer counts | **Yes**; calls the actual R/DESeq2 engine |
 | `classify-primary --differential-expression-dir`: import completed differential tests | No; compatible test results must already exist |
 | `classify-primary --expression-matrix`: log-expression paired t-test | No; this is a distinct statistical route, not a Python implementation of DESeq2 |
-| `polarize-outgroup`: optional outgroup-reference analysis | No; uses existing primary results and expression evidence |
 
-Download the wheel or source archive from the [1.0.0 release](https://github.com/lihongxiang97/iDGRM/releases/tag/v1.0.0). From an extracted source directory:
+Download the wheel or source archive from the [2.0.0 release](https://github.com/lihongxiang97/iDGRM/releases/tag/v2.0.0). From an extracted source directory:
 
 ```bash
 python -m pip install .
@@ -32,7 +33,7 @@ idgrm --help
 python -m unittest discover -s tests -v
 ```
 
-## Module 1: primary four-class classification
+## Four-class classification
 
 Fit differential expression using raw integer counts from comparable, reliably assignable regions. Alternatively, import compatible differential-expression results generated beforehand.
 
@@ -66,44 +67,15 @@ idgrm classify-primary --expression-matrix examples/expression.tsv \
 
 Outputs are `primary_classifications.tsv`, `tissue_evidence.tsv`, `primary_summary.tsv`, and `primary_run_metadata.json`. The machine-readable code `UNMAPPED` is retained for compatibility and displayed as Unmappable. This category also includes insufficient expression evidence: it does not, by itself, establish that a pair is genuinely unmappable. Consult `assessment_status`, `mapping_status`, and the classification reason. No difference means that the specified directional rules were not met, not that the copies have identical functions.
 
-## Module 2: optional outgroup-reference expression polarization
-
-```bash
-idgrm polarize-outgroup \
-  --primary-results-dir results/example_primary \
-  --outgroup-expression examples/ancestor_expression.tsv \
-  --outgroup-samples examples/ancestor_samples.tsv \
-  --orthologs examples/orthologs.tsv --tissue-map examples/tissue_map.tsv \
-  --detection-qc examples/detection_qc.tsv \
-  --outgroup-species "Synthetic example" --reference-version fixture-v1 \
-  --orthology-source "Synthetic fixture" --output-dir results/example_polarization
-```
-
-These synthetic examples verify program behavior; they are not accuracy benchmarks or biological findings. The historical filename `ancestor_expression.tsv` refers to an extant outgroup, not a reconstructed ancestor.
-
-Users select the outgroup and supply orthology assignments, tissue correspondences, and detection-adequacy declarations. The module does not automatically validate these biological judgments. Select an outgroup with an appropriate phylogenetic position relative to the duplication event and a reliably identified single-copy ortholog; the closest species is not necessarily the most suitable reference. Match tissue identity, developmental stage, and experimental conditions where possible.
-
-Required mapping tables are illustrated in `examples/`:
-
-| File | Required columns | Accepted declarations |
-|---|---|---|
-| `orthologs.tsv` | `pair_id`, `outgroup_gene_id`, `relationship` | `single_copy` or `ambiguous` |
-| `tissue_map.tsv` | `target_tissue`, `outgroup_tissue`, `match_quality` | `exact` or `approximate` |
-| `detection_qc.tsv` | `outgroup_gene_id`, `outgroup_tissue`, `assessment` | `adequate` or `inadequate` |
-
-Tissue correspondence must be one-to-one. Approximate matches require explicit opt-in with `--allow-approximate-tissues`. Missing genes, missing tissues, failed quantification, and insufficient detection evidence must not be encoded as absence of expression.
-
-Defaults distinguish ON (TPM ≥ 1), OFF (all measured replicates ≤ 0.1 TPM), and UNKNOWN states. At least two valid replicates, two informative matched tissues, and a 50% informative fraction among included tissue mappings are required. The retention threshold is 0.8. These are configurable operational thresholds, not calibrated biological constants. See the [detailed outgroup guide (Chinese)](docs/OUTGROUP_GUIDE_CN.md) for the full input and interpretation requirements.
-
 ## Methods, limitations, and reproducibility
 
 - [Methods and differences from the reference publication (Chinese)](docs/METHODOLOGY_CN.md)
-- [Outgroup selection and input guide (Chinese)](docs/OUTGROUP_GUIDE_CN.md)
-- [1.0.0 release notes and verification scope (Chinese)](docs/RELEASE_1.0.0_CN.md)
+- [2.0.0 release notes and migration](docs/RELEASE_2.0.0.md)
+- [Software design figure and legend](docs/FIGURE1.md)
 
-Run metadata records parameters and input SHA-256 checksums. Primary outputs include integrity hashes checked by the polarization module. Existing output files are not silently overwritten. Historical refinement code is retained internally for regression checks and is not a supported public interface; use `polarize-outgroup`. Historical results are not automatically relabeled.
+Run metadata records parameters, input SHA-256 checksums, and output integrity hashes. Existing output files are not silently overwritten. Version 2.0.0 removes the previous outgroup polarization and historical subtype-refinement interfaces, associated parameters, and example data. Primary classification thresholds are unchanged.
 
-In this release, stability refers to supported interfaces, rule execution, error handling, and reproducibility. It does not imply established biological accuracy or error control under every experimental condition. Small sample sizes, high dispersion, limited tissue coverage, and assignment bias between similar copies remain important limitations. Outgroup-supported candidates are expression-based interpretations, not direct proof of subfunctionalization or neofunctionalization.
+In this release, stability refers to supported interfaces, rule execution, error handling, and reproducibility. It does not imply established biological accuracy or error control under every experimental condition. Small sample sizes, high dispersion, limited tissue coverage, and assignment bias between similar copies remain important limitations.
 
 ## References
 

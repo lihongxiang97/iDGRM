@@ -1,7 +1,4 @@
-"""Four-class expression workflows and retained historical research helpers.
-
-Subtype refinement is historical, unsupported research code, not a public workflow.
-"""
+"""Four-class duplicate-gene expression-pattern workflows."""
 
 from __future__ import annotations
 
@@ -17,13 +14,11 @@ import pandas as pd
 
 from .classifier import (
     PRIMARY_LABELS_CN,
-    REFINEMENT_LABELS_CN,
     classify_primary_pairs,
-    refine_primary_candidates,
 )
 from .config import IDGRMConfig
 from ._version import __version__
-from .io import aggregate_tissue_expression, normalize_expression, read_expression, read_pairs, read_samples
+from .io import normalize_expression, read_expression, read_pairs, read_samples
 from .legacy import (
     DEFAULT_DIFFERENTIAL_EXPRESSION_FILENAME_REGEX,
     load_differential_expression_results,
@@ -201,77 +196,3 @@ def run_primary_classification_from_differential_expression(
     )
     summary, paths = _write_primary(output_dir, classifications, evidence, metadata)
     return AnalysisResult(classifications, evidence, summary, paths, warnings)
-
-
-def _read_table(path: str | Path) -> pd.DataFrame:
-    path = Path(path)
-    return pd.read_csv(path, sep="," if path.suffix.lower() == ".csv" else "\t")
-
-
-def _load_outgroup(
-    expression_matrix_path: str | Path | None,
-    sample_metadata_path: str | Path | None,
-    normalization: str,
-) -> pd.DataFrame | None:
-    if expression_matrix_path is None:
-        if sample_metadata_path is not None:
-            raise ValueError("Outgroup sample metadata requires an outgroup expression matrix")
-        return None
-    expression = normalize_expression(read_expression(expression_matrix_path), normalization)
-    samples = read_samples(sample_metadata_path, expression.columns) if sample_metadata_path else None
-    return aggregate_tissue_expression(expression, samples)
-
-
-def run_subtype_refinement(
-    primary_classifications_path: str | Path,
-    tissue_evidence_path: str | Path,
-    duplicate_pairs_path: str | Path,
-    output_dir: str | Path,
-    config: IDGRMConfig | None = None,
-    outgroup_expression_matrix_path: str | Path | None = None,
-    outgroup_sample_metadata_path: str | Path | None = None,
-    normalization: str = "none",
-) -> AnalysisResult:
-    """Refine eligible primary classes while retaining their primary assignments."""
-
-    config = (config or IDGRMConfig()).validate()
-    primary = _read_table(primary_classifications_path)
-    evidence = _read_table(tissue_evidence_path)
-    pairs = read_pairs(duplicate_pairs_path)
-    outgroup = _load_outgroup(
-        outgroup_expression_matrix_path, outgroup_sample_metadata_path, normalization
-    )
-    refined = refine_primary_candidates(primary, evidence, pairs, config, outgroup)
-    summary = _summary(
-        refined, "refined_class", REFINEMENT_LABELS_CN, parent="parent_primary_class"
-    )
-    warnings = list(pairs.attrs.get("warnings", []))
-    if outgroup is None:
-        warnings.append(
-            "No outgroup expression was supplied; neofunctionalization is inferred from "
-            "target-species expression patterns and is not evolutionarily polarized."
-        )
-    metadata = _metadata(
-        config,
-        {
-            "primary_classifications": _input_record(primary_classifications_path),
-            "tissue_evidence": _input_record(tissue_evidence_path),
-            "duplicate_pairs": _input_record(duplicate_pairs_path),
-            "outgroup_expression_matrix": _input_record(outgroup_expression_matrix_path),
-            "outgroup_sample_metadata": _input_record(outgroup_sample_metadata_path),
-        },
-        warnings,
-        workflow="HIERARCHICAL_SUBTYPE_REFINEMENT",
-        eligible_primary_classes=["ASYMMETRICALLY_EXPRESSED", "SUB_OR_NEOFUNCTIONALIZED"],
-    )
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    paths = {
-        "refined_classifications": output_dir / "refined_classifications.tsv",
-        "refined_summary": output_dir / "refined_summary.tsv",
-        "run_metadata": output_dir / "refinement_run_metadata.json",
-    }
-    refined.to_csv(paths["refined_classifications"], sep="\t", index=False, na_rep="")
-    summary.to_csv(paths["refined_summary"], sep="\t", index=False, na_rep="")
-    paths["run_metadata"].write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    return AnalysisResult(refined, evidence, summary, paths, warnings)

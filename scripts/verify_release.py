@@ -37,15 +37,9 @@ def main():
     command("classify-primary", "--expression-matrix", example / "expression.tsv",
         "--sample-metadata", example / "samples.tsv", "--duplicate-pairs", example / "pairs.tsv",
         "--output-dir", output / "primary")
-    command("polarize-outgroup", "--primary-results-dir", output / "primary",
-        "--outgroup-expression", example / "ancestor_expression.tsv",
-        "--outgroup-samples", example / "ancestor_samples.tsv", "--orthologs", example / "orthologs.tsv",
-        "--tissue-map", example / "tissue_map.tsv", "--detection-qc", example / "detection_qc.tsv",
-        "--outgroup-species", "Synthetic example", "--reference-version", "fixture-v1",
-        "--orthology-source", "Synthetic fixture", "--output-dir", output / "polarization")
-    labels = pd.read_csv(output / "polarization/outgroup_polarization.tsv", sep="\t").set_index("pair_id").polarization_class
-    assert labels["pair_sub"] == "OUTGROUP_SUPPORTED_SUB_CANDIDATE"
-    assert labels["pair_neo"] == "OUTGROUP_SUPPORTED_NEO_CANDIDATE"
+    labels = pd.read_csv(output / "primary/primary_classifications.tsv", sep="\t").set_index("pair_id").primary_class
+    assert labels["pair_sub"] == "SUB_OR_NEOFUNCTIONALIZED"
+    assert labels["pair_neo"] == "SUB_OR_NEOFUNCTIONALIZED"
     if args.rscript:
         fixture = output / "counts_fixture"
         fixture.mkdir()

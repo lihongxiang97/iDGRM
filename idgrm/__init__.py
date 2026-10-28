@@ -7,10 +7,8 @@ from .pipeline import (
     run_primary_classification,
     run_primary_classification_from_differential_expression,
 )
-from .polarization import PolarizationConfig, run_outgroup_polarization
 
 __all__ = [
     "IDGRMConfig", "AnalysisResult", "run_primary_classification",
     "run_primary_classification_from_differential_expression",
-    "PolarizationConfig", "run_outgroup_polarization",
 ]

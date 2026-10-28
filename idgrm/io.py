@@ -129,7 +129,7 @@ def read_expression(path: str | Path) -> pd.DataFrame:
     if frame.shape[1] < 2:
         raise ValueError("Expression matrix must have a gene column and at least one data column")
 
-    gene_aliases = {"gene", "geneid", "id", "transcript", "transcriptid", "ancestorid"}
+    gene_aliases = {"gene", "geneid", "id", "transcript", "transcriptid"}
     gene_column = _find_column(frame.columns, gene_aliases) or str(frame.columns[0])
     frame = frame.rename(columns={gene_column: "gene_id"})
     if frame["gene_id"].isna().any():
@@ -284,10 +284,6 @@ def read_pairs(path: str | Path) -> pd.DataFrame:
         frame.columns,
         {"duplicationtype", "duplicatetype", "mechanism", "mode", "duplicationmode"},
     )
-    ancestor_column = _find_column(
-        frame.columns,
-        {"ancestor", "ancestorid", "ancestralgene", "outgroup", "outgroupgene", "ortholog"},
-    )
     role1_column = _find_column(frame.columns, {"role1", "gene1role", "copy1role"})
     role2_column = _find_column(frame.columns, {"role2", "gene2role", "copy2role"})
 
@@ -314,9 +310,6 @@ def read_pairs(path: str | Path) -> pd.DataFrame:
         else _infer_duplication_type(path)
     )
     canonical.loc[canonical["duplication_type"].eq(""), "duplication_type"] = "unspecified"
-    canonical["ancestor_id"] = (
-        frame[ancestor_column].fillna("").astype(str).str.strip() if ancestor_column else ""
-    )
 
     source1 = _canonical(gene1_column)
     source2 = _canonical(gene2_column)
@@ -350,7 +343,7 @@ def read_pairs(path: str | Path) -> pd.DataFrame:
         )
 
     result = canonical[
-        ["pair_id", "gene1", "gene2", "duplication_type", "role1", "role2", "ancestor_id"]
+        ["pair_id", "gene1", "gene2", "duplication_type", "role1", "role2"]
     ].reset_index(drop=True)
     result.attrs["warnings"] = input_warnings
     result.attrs["headerless"] = headerless

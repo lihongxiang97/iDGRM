@@ -1,0 +1,17 @@
+illustration	tissue	copy1_arbitrary_units	copy2_arbitrary_units	illustrative_direction	data_type
+unmappable	T1	nan	nan	no_difference	ILLUSTRATIVE_NOT_MEASURED
+unmappable	T2	nan	nan	no_difference	ILLUSTRATIVE_NOT_MEASURED
+unmappable	T3	nan	nan	no_difference	ILLUSTRATIVE_NOT_MEASURED
+unmappable	T4	nan	nan	no_difference	ILLUSTRATIVE_NOT_MEASURED
+no_difference	T1	4.2	4.5	no_difference	ILLUSTRATIVE_NOT_MEASURED
+no_difference	T2	5.2	5.0	no_difference	ILLUSTRATIVE_NOT_MEASURED
+no_difference	T3	3.6	3.8	no_difference	ILLUSTRATIVE_NOT_MEASURED
+no_difference	T4	5.5	5.2	no_difference	ILLUSTRATIVE_NOT_MEASURED
+asymmetric	T1	8.0	1.8	gene1_high	ILLUSTRATIVE_NOT_MEASURED
+asymmetric	T2	6.8	1.7	gene1_high	ILLUSTRATIVE_NOT_MEASURED
+asymmetric	T3	8.5	2.0	gene1_high	ILLUSTRATIVE_NOT_MEASURED
+asymmetric	T4	6.0	1.5	gene1_high	ILLUSTRATIVE_NOT_MEASURED
+subneo	T1	8.2	1.6	gene1_high	ILLUSTRATIVE_NOT_MEASURED
+subneo	T2	7.6	1.8	gene1_high	ILLUSTRATIVE_NOT_MEASURED
+subneo	T3	1.6	7.8	gene2_high	ILLUSTRATIVE_NOT_MEASURED
+subneo	T4	1.7	8.1	gene2_high	ILLUSTRATIVE_NOT_MEASURED

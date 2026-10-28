@@ -85,18 +85,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_configuration_arguments(primary)
 
-    polarize = commands.add_parser("polarize-outgroup", help="Optional outgroup-supported expression candidates; never modifies primary classes.")
-    for name in ("primary-results-dir", "outgroup-expression", "outgroup-samples", "orthologs",
-                 "tissue-map", "detection-qc", "outgroup-species", "reference-version", "orthology-source", "output-dir"):
-        polarize.add_argument("--" + name, required=True)
-    polarize.add_argument("--on-threshold", type=float, default=1.)
-    polarize.add_argument("--off-threshold", type=float, default=.1)
-    polarize.add_argument("--minimum-replicates", type=int, default=2)
-    polarize.add_argument("--minimum-matched-tissues", type=int, default=2)
-    polarize.add_argument("--retained-coverage", type=float, default=.8)
-    polarize.add_argument("--allow-approximate-tissues", action="store_true")
-    polarize.add_argument("--minimum-informative-fraction", type=float, default=.5)
-
     return parser
 
 
@@ -113,18 +101,6 @@ def _print_result(result: object) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        if args.command == "polarize-outgroup":
-            from .polarization import PolarizationConfig, run_outgroup_polarization
-            result = run_outgroup_polarization(
-                args.primary_results_dir, args.outgroup_expression, args.outgroup_samples,
-                args.orthologs, args.tissue_map, args.detection_qc, args.output_dir,
-                outgroup_species=args.outgroup_species, reference_version=args.reference_version,
-                orthology_source=args.orthology_source,
-                config=PolarizationConfig(args.on_threshold, args.off_threshold, args.minimum_replicates,
-                    args.minimum_matched_tissues, args.retained_coverage, args.allow_approximate_tissues,
-                    args.minimum_informative_fraction))
-            _print_result(result)
-            return 0
         if args.command=="fit-copy-counts":
             from .counts import fit_copy_counts
             path=fit_copy_counts(args.counts,args.duplicate_pairs,args.sample_metadata,args.output_dir,

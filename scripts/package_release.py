@@ -13,11 +13,14 @@ out.mkdir(exist_ok=True)
 paths = [root / "README.md", root / "pyproject.toml"]
 paths += [p for p in (root / "idgrm").rglob("*") if p.is_file() and "__pycache__" not in p.parts and p.suffix in {".py", ".R", ".tsv"}]
 paths += list((root / "examples").glob("*.tsv"))
-paths += [root / "docs" / name for name in ("METHODOLOGY_CN.md", "OUTGROUP_GUIDE_CN.md", f"RELEASE_{version}_CN.md")]
+paths += [root / "docs" / name for name in ("METHODOLOGY_CN.md", f"RELEASE_{version}.md", "VALIDATION_CN.md")]
 paths += [root / "scripts" / name for name in ("verify_release.py", "package_release.py")]
 paths += [root / "scripts/publish_release.py", root / ".github/workflows/release.yml"]
+paths += [root / "scripts/plot_fig1_idgrm_design.py", root / "docs/FIGURE1.md"]
+paths += [root / "scripts/verify_primary_replay.py", root / "docs" / f"RELEASE_VERIFICATION_{version}.json"]
+paths += [root / "docs/figures" / name for name in ("Fig1_iDGRM_design.svg", "Fig1_iDGRM_design_preview.png", "illustrative_profiles.tsv", "figure_qa.json")]
 # Include the self-contained core release tests, not unrelated research simulation harnesses.
-paths += [root / "tests" / name for name in ("test_io.py", "test_legacy.py", "test_pipeline.py", "test_public_scope.py", "test_count_inputs.py", "test_polarization.py", "test_classifier_invariants.py")]
+paths += [root / "tests" / name for name in ("test_io.py", "test_legacy.py", "test_pipeline.py", "test_public_scope.py", "test_count_inputs.py", "test_classifier_invariants.py")]
 paths = sorted(set(paths))
 for suffix in ("zip", "tar.gz"):
     destination = out / f"iDGRM-{version}-source.{suffix}"

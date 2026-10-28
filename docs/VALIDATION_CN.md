@@ -1,24 +1,9 @@
-# iDGRM 验证与质量控制
+# iDGRM 2.0.0 验证与质量控制
 
-> 历史说明：下列旧版“亚型细分”不是 1.0.0 的公开功能。当前接口、证据边界与验收要求以 RELEASE_1.0.0_CN.md、METHODOLOGY_CN.md 和 OUTGROUP_GUIDE_CN.md 为准。
+软件测试覆盖输入校验、重复对去重、旧格式差异结果导入、四类判定、copy 交换与组织重排不变性、缺失统计量、输出防覆盖以及原始整数 counts 接口。公开接口只包含 `fit-copy-counts` 和 `classify-primary`；发布检查确认已删除的细分命令和 Python 模块不可使用，安装包不包含相关示例。
 
-## 软件级验证
+随包示例仅验证程序行为，不是生物学准确率基准。counts 集成检查可使用 `scripts/verify_release.py --rscript <Rscript>` 运行真实 R/DESeq2 的 Wald/LRT 拟合。发布前还应验证安装后的 wheel、源代码归档、输入输出 SHA-256 与命令行帮助。
 
-自动测试覆盖输入格式、重复基因对去重、parent/daughter字段识别、组织级差异证据导入、四类初级分类、亚型细分和初级分类追溯。发布前要求全部测试通过，并检查Python字节码编译和Git差异格式。
+分类结果只能包含 `UNMAPPED`、`NO_DIFFERENCE`、`ASYMMETRICALLY_EXPRESSED` 和 `SUB_OR_NEOFUNCTIONALIZED`，每个输入重复对只有一个标签。SUB 与 NEO 保持合并。缺失检验不能作为无差异的证据，表达证据不足不等于独立证明不可比对。
 
-## 分类不变量
-
-1. 初级结果只能包含 `UNMAPPED`、`NO_DIFFERENCE`、`ASYMMETRICALLY_EXPRESSED` 和 `SUB_OR_NEOFUNCTIONALIZED`；
-2. 每个重复基因对只能有一个初级类别；
-3. 亚型细分只能接收 `ASYMMETRICALLY_EXPRESSED` 和 `SUB_OR_NEOFUNCTIONALIZED`；
-4. 亚型结果必须保留 `parent_primary_class`；
-5. 表达沉默相关模式不能成为独立一级类别；
-6. 缺少外群时必须明确记录未极化表达推断的证据等级。
-
-## 数据级验证
-
-正式数据分析应检查：严格唯一比对比例、整数计数完整性、样本与组织对应、重复数量、低计数过滤、有效长度及可唯一比对长度、P值分布、离散度拟合、效应量分布和阈值敏感性。若大量基因对在极严格阈值下显著，应先排除模型设定或copy间可比性问题，再解释为生物学差异。
-
-## 与参考实现的比较
-
-推荐报告初级四分类的一致率、Cohen's kappa、各类precision/recall和混淆矩阵。iDGRM对亚型的扩展应单独报告，不能与初级分类混合计算一致率。
+实际数据应检查唯一归属与完全匹配要求、整数 counts、copy 可观测区域及有效长度、组织和生物学重复、离散度拟合、NA 比例、效应与 P 值分布。版本间标签一致只验证实现连续性；逐组织 BH 校正不保证最终四分类的错误发现率，也不证明功能命运。

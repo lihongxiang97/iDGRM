@@ -1,0 +1,36 @@
+{
+  "software_version": "2.0.0",
+  "dimensions_mm": [
+    183.0,
+    180.0
+  ],
+  "backend": "Python/Matplotlib",
+  "svg_editable_text_count": 63,
+  "out_of_canvas_text": [],
+  "text_collisions": [],
+  "checked_primary_labels": {
+    "unmappable": "UNMAPPED",
+    "no_difference": "NO_DIFFERENCE",
+    "asymmetric": "ASYMMETRICALLY_EXPRESSED",
+    "subneo": "SUB_OR_NEOFUNCTIONALIZED"
+  },
+  "raster_dpi": {
+    "png": 300,
+    "tiff": 600
+  },
+  "integrity_note": "All profiles are explicitly illustrative, not experimental data or accuracy evidence",
+  "font": "Arial with sans-serif fallbacks; editable SVG text and embedded TrueType PDF",
+  "qa_checks": {
+    "in_canvas_text": true,
+    "nonoverlapping_text": true,
+    "editable_svg_text": true,
+    "code_checked_schematic_patterns": true
+  },
+  "sha256": {
+    "Fig1_iDGRM_design.pdf": "d62846ed8c94d769c326bd1f2b366c4080a234d691f26eeafabb6b0b469055c3",
+    "Fig1_iDGRM_design.png": "a537f89b1b5d66e3bb9b86abaed495d3fc8f20aa086bf50e0ea9c4a2e2dd94d2",
+    "Fig1_iDGRM_design.svg": "fa50185a8bf24825f5d78d44cdf72a19503b135f928f860cdd13e3ec3026725f",
+    "Fig1_iDGRM_design.tiff": "aed5d11102ed49bd8ec94e8d1c253067dda1a4dea798c171705fee192c186bd2",
+    "Fig1_iDGRM_design_preview.png": "edb0061b691fe4f6b26e674cc8c4e8422a0d9b7346e7dee25e457d3728c293cf"
+  }
+}

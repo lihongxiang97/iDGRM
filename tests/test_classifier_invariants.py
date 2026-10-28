@@ -2,12 +2,11 @@
 import itertools
 import math
 import unittest
-from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
-from idgrm.classifier import classify_primary_pairs, refine_primary_candidates
+from idgrm.classifier import classify_primary_pairs
 from idgrm.config import IDGRMConfig
 
 
@@ -71,15 +70,6 @@ class ClassifierInvariantTests(unittest.TestCase):
         self.assertEqual(row.n_callable_tissues, 2)
         self.assertEqual(row.primary_class, "ASYMMETRICALLY_EXPRESSED")
 
-    def test_refinement_uses_exact_same_adjusted_p_eligibility(self):
-        frame = evidence(["gene1_high", "gene2_high", "no_difference"])
-        frame.loc[2, "qvalue"] = np.nan
-        primary = classify_primary_pairs(frame, self.pairs, self.config)
-        with patch("idgrm.classifier._split_expression_only", return_value=(
-                "UNRESOLVED_SUB_OR_NEOFUNCTIONALIZATION", "", "test", .4)) as split:
-            refine_primary_candidates(primary, frame, self.pairs, self.config)
-        self.assertEqual(len(split.call_args.args[1]), 2)
-
     def test_nonfinite_effect_not_callable(self):
         frame = evidence(["gene1_high", "gene2_high"])
         frame.loc[1, "log2fc_gene2_over_gene1"] = np.inf
@@ -99,14 +89,6 @@ class ClassifierInvariantTests(unittest.TestCase):
         frame = evidence(["no_difference", "no_difference"])
         frame[["active1", "active2"]] = False
         self.assertEqual(self.classify(frame).primary_class, "UNMAPPED")
-
-    def test_rule_score_is_explicitly_not_a_probability(self):
-        frame = evidence(["gene1_high", "gene2_high"])
-        primary = classify_primary_pairs(frame, self.pairs, self.config)
-        refined = refine_primary_candidates(primary, frame, self.pairs, self.config)
-        self.assertNotIn("confidence", refined.columns)
-        self.assertIn("rule_support_score", refined.columns)
-        self.assertEqual(refined.iloc[0].score_interpretation, "UNCALIBRATED_RULE_SCORE_NOT_PROBABILITY")
 
 
 if __name__ == "__main__":

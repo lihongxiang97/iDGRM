@@ -1,1 +1,1 @@
-"""Bundled example inputs for the iDGRM demo command."""
+"""Bundled synthetic inputs for four-class expression-pattern classification."""
